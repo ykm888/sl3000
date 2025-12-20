@@ -4,7 +4,8 @@
 # ✅ 进入 openwrt 目录（最终正确路径）
 # ================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OPENWRT_DIR="$SCRIPT_DIR/../../openwrt"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+OPENWRT_DIR="$ROOT_DIR/../openwrt"
 
 cd "$OPENWRT_DIR" || {
     echo "❌ 无法进入 openwrt 目录：$OPENWRT_DIR"
@@ -16,8 +17,10 @@ echo "=== SL3000 环境自检开始 ==="
 # ================================
 # ✅ 1. 检查 mt7981.mk
 # ================================
-if [ ! -f "target/linux/mediatek/image/mt7981.mk" ]; then
-    echo "❌ 缺少 mt7981.mk"
+MK_FILE="target/linux/mediatek/image/mt7981.mk"
+
+if [ ! -f "$MK_FILE" ]; then
+    echo "❌ 缺少 mt7981.mk：$MK_FILE"
     exit 1
 else
     echo "✅ mt7981.mk 存在"
