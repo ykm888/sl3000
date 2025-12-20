@@ -21,29 +21,19 @@ jobs:
         fi
         echo "✅ 验证码正确，开始构建"
 
-    - name: 释放磁盘空间（防爆盘）
+    - name: 释放磁盘空间
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
         docker system prune -af || true
         sudo apt-get clean
-        df -h
 
-    - name: 恢复 ccache 缓存
-      uses: actions/cache@v4
-      with:
-        path: ~/.ccache
-        key: ccache-${{ github.ref }}-${{ github.sha }}
-        restore-keys: |
-          ccache-${{ github.ref }}-
-          ccache-
-
-    - name: Checkout your repo（三件套）
+    - name: Checkout 三件套仓库（你的仓库）
       uses: actions/checkout@v4
       with:
-        path: yourrepo
-        ref: main   # ✅ 你新仓库的分支（如果是其他分支请改这里）
+        path: myrepo
+        ref: main
 
-    - name: Checkout OpenWrt 官方源码
+    - name: Checkout 官方 OpenWrt 源码
       uses: actions/checkout@v4
       with:
         repository: openwrt/openwrt
@@ -56,38 +46,107 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: 覆盖三件套（完全对齐路径）
+    - name: 覆盖三件套到官方源码
       run: |
-        # ✅ 覆盖 mt7981.mk
-        cp yourrepo/target/linux/mediatek/image/mt7981.mk \
+        # 覆盖 mt7981.mk
+        cp myrepo/target/linux/mediatek/image/mt7981.mk \
            openwrt/target/linux/mediatek/image/
 
-        # ✅ 覆盖 DTS
+        # 覆盖 DTS
         mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-        cp yourrepo/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
+        cp myrepo/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
            openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 
-        # ✅ 覆盖 .config
-        cp yourrepo/configs/sl3000.config openwrt/.config
+        # 覆盖 .config
+        cp myrepo/configs/sl3000.config openwrt/.config
 
-    - name: 强制只启用 SL3000（防止构建成其他设备）
+    - name: 写入 SL3000 环境自检脚本
+      run: |
+        cat << 'EOF' > openwrt/check-sl3000-env.sh
+        #!/bin/bash
+        echo "=== SL3000 环境自检开始 ==="
+
+        # 1. 检查 mt7981.mk 是否存在
+        if [ ! -f "target/linux/mediatek/image/mt7981.mk" ]; then
+            echo "❌ 缺少 mt7981.mk"
+            exit 1
+        else
+            echo "✅ mt7981.mk 存在"
+        fi
+
+        # 2. 检查 mt7981.mk 是否包含设备定义
+        grep -q "Device/sl3000-emmc" target/linux/mediatek/image/mt7981.mk
+        if [ $? -ne 0 ]; then
+            echo "❌ mt7981.mk 中没有 Device/sl3000-emmc 定义"
+            exit 1
+        else
+            echo "✅ mt7981.mk 中包含 Device/sl3000-emmc"
+        fi
+
+        # 3. 检查 DTS 路径
+        if [ ! -f "target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" ]; then
+            echo "❌ DTS 文件不存在"
+            exit 1
+        else
+            echo "✅ DTS 文件存在"
+        fi
+
+        # 4. 检查 defconfig 后是否启用 SL3000
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config
+        if [ $? -ne 0 ]; then
+            echo "❌ .config 中未启用 SL3000"
+            exit 1
+        else
+            echo "✅ .config 已启用 SL3000"
+        fi
+
+        echo "=== ✅ SL3000 环境自检通过，可以安全构建 ==="
+        exit 0
+        EOF
+
+        chmod +x openwrt/check-sl3000-env.sh
+
+    - name: 强制启用 SL3000
       run: |
         cd openwrt
-        rm -f .config
-        echo "CONFIG_TARGET_mediatek=y" >> .config
+        echo "CONFIG_TARGET_mediatek=y" > .config
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
-        echo "CONFIG_DEVEL=y" >> .config
-        echo "CONFIG_CCACHE=y" >> .config
         make defconfig
 
-    - name: 构建固件
+    - name: 运行 SL3000 环境自检
       run: |
         cd openwrt
-        make -j$(nproc) V=s 2>&1 | tee build.log || make -j1 V=s 2>&1 | tee build.log
+        ./check-sl3000-env.sh
 
-    - name: 生成构建信息 build-info.txt
+    - name: 开始构建
       run: |
         cd openwrt
-        mkdir -p bin/targets/buildinfo
-        echo "Device: SL3000 eMMC" > bin/targets/buildinfo/build-info.txt
+        make -j$(nproc) V=s || make -j1 V=s
+
+    - name: 上传固件（artifact）
+      uses: actions/upload-artifact@v4
+      with:
+        name: sl3000-firmware
+        path: openwrt/bin/targets/
+
+    - name: 创建 Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: sl3000-${{ github.run_number }}
+        name: SL3000 Build ${{ github.run_number }}
+        body: "SL3000 固件构建成功"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 上传固件到 Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: sl3000-${{ github.run_number }}
+        files: |
+          openwrt/bin/targets/*/*/*sl3000*.bin
+          openwrt/bin/targets/*/*/sha256sums
+          openwrt/bin/targets/*/*/profiles.json
+          openwrt/bin/targets/*/*/config.buildinfo
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
