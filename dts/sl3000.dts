@@ -1,0 +1,63 @@
+// target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+
+/dts-v1/;
+#include "mt7981.dtsi"
+
+/ {
+    compatible = "siluoxing,sl3000-emmc", "mediatek,mt7981";
+    model = "Siluoxing SL3000 (MT7981B + MT7976CN, 1G DDR4, 128G eMMC)";
+
+    memory {
+        device_type = "memory";
+        reg = <0x40000000 0x40000000>; // 1GB DDR4
+    };
+
+    chosen {
+        stdout-path = &uart0;
+        bootargs = "console=ttyS0,115200n8";
+    };
+};
+
+/* SPI NOR 32MB: W25Q256FSSIG */
+&spi0 {
+    status = "okay";
+
+    flash@0 {
+        compatible = "jedec,spi-nor";
+        reg = <0>;
+        spi-max-frequency = <52000000>;
+        #address-cells = <1>;
+        #size-cells = <1>;
+        // 分区布局根据你现有 23.05 DTS 的分区来迁移
+    };
+};
+
+/* 128GB eMMC: HSEMSDS7D2B128G */
+&mmc0 {
+    bus-width = <8>;
+    max-frequency = <200000000>;
+    cap-mmc-highspeed;
+    non-removable;
+    status = "okay";
+
+    /* 分区采用 GPT，由 24.10 的 image 构建生成 */
+};
+
+/* 内置 WiFi (MT7981) */
+&wifi {
+    status = "okay";
+};
+
+/* 外挂 5G: MT7976CN，PCIe 或 SDIO 视你硬件而定。
+
+   如果是 PCIe 5G：
+*/
+&pcie {
+    status = "okay";
+
+    wifi@0,0 {
+        compatible = "mediatek,mt76";
+        reg = <0 0 0 0 0>;
+        /* 这里具体参数可以参考 cmcc_rax3000m 的 DTS */
+    };
+};
