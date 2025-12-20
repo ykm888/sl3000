@@ -21,9 +21,18 @@ else
     echo "✅ DTS 文件存在"
 fi
 
-# DTS 语法检查
+###############################################
+# 2. DTS 语法检查（带 include 路径）
+###############################################
 echo "→ 正在检查 DTS 语法..."
-dtc -I dts -O dtb "$DTS_FILE" -o /tmp/sl3000.dtb 2>/tmp/dts_err || true
+
+dtc -I dts -O dtb \
+  -i target/linux/mediatek/dts \
+  -i target/linux/generic/files/include \
+  -i include \
+  "$DTS_FILE" \
+  -o /tmp/sl3000.dtb 2>/tmp/dts_err || true
+
 if [ -s /tmp/dts_err ]; then
     echo "❌ DTS 语法错误："
     cat /tmp/dts_err
@@ -32,5 +41,5 @@ else
     echo "✅ DTS 语法正常"
 fi
 
-echo "=== ✅ 自检完成 ==="
+echo "=== ✅ SL3000 ImmortalWrt 24.10 自检全部通过 ==="
 exit 0
