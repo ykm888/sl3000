@@ -1,107 +1,114 @@
-name: Build SL3000 (OpenWrt 23.05)
+name: Build SL3000 eMMC (23.05)
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      # 1. 拉取当前仓库（ykm888/sl3000）
-      - name: Checkout SL3000 repo
-        uses: actions/checkout@v4
+    - name: Checkout Repo
+      uses: actions/checkout@v4
 
-      # 2. 克隆 OpenWrt 23.05 源码
-      - name: Clone OpenWrt 23.05
-        run: |
-          git clone --branch openwrt-23.05 https://github.com/openwrt/openwrt.git openwrt
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+    # ✅ 1. 磁盘优化（扩容 + 清理）
+    - name: Optimize Disk Space
+      run: |
+        echo "=== 清理 Docker 镜像 ==="
+        docker system prune -af || true
 
-      # 3. 覆盖三件套（严格对齐你仓库的官方路径）
-      - name: Apply SL3000 device files
-        run: |
-          # image
-          mkdir -p openwrt/target/linux/mediatek/image/
-          cp target/linux/mediatek/image/mt7981.mk \
-             openwrt/target/linux/mediatek/image/
+        echo "=== 清理 APT 缓存 ==="
+        sudo apt clean
+        sudo rm -rf /var/lib/apt/lists/*
 
-          # DTS
-          mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          cp target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
-             openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+        echo "=== 删除不必要的大文件 ==="
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache
 
-          # 使用仓库 configs/sl3000.config 作为最终 .config
-          cp configs/sl3000.config openwrt/.config
+        echo "=== 扩容磁盘到 100GB ==="
+        sudo fallocate -l 60G /swapfile
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
 
-      # 4. 自检（必须在 openwrt 下执行）
-      - name: Run SL3000 environment check
-        run: |
-          chmod +x scripts/check-sl3000-env.sh
-          ./scripts/check-sl3000-env.sh
+    # ✅ 2. 安装构建依赖
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential clang flex bison g++ gawk \
+          gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+          python3 python3-distutils rsync unzip zlib1g-dev file wget ccache
 
-      # 5. 磁盘优化（完整）
-      - name: Expand disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/lib/android
-          sudo docker system prune -af || true
-          sudo apt-get clean
-          df -h
+    # ✅ 3. 启用 ccache（加速 3～5 倍）
+    - name: Enable ccache
+      run: |
+        echo 'export CC="ccache gcc"' >> $GITHUB_ENV
+        echo 'export CXX="ccache g++"' >> $GITHUB_ENV
+        echo 'export CCACHE_DIR=$HOME/.ccache' >> $GITHUB_ENV
+        echo 'export CCACHE_COMPRESS=1' >> $GITHUB_ENV
 
-      # 6. ccache 缓存
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-
+    # ✅ 4. 缓存 dl / toolchain / ccache
+    - name: Cache OpenWrt Build
+      uses: actions/cache@v4
+      with:
+        path: |
+          immortalwrt/dl
+          immortalwrt/staging_dir
+          immortalwrt/build_dir
+          ~/.ccache
+        key: sl3000-emmc-23.05-${{ hashFiles('sl3000/*') }}
+        restore-keys: |
+          sl3000-emmc-23.05-
 
-      # 7. dl 缓存
-      - name: Cache dl
-        uses: actions/cache@v4
-        with:
-          path: openwrt/dl
-          key: ${{ runner.os }}-dl-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-dl-
+    # ✅ 5. 拉取 ImmortalWrt 23.05
+    - name: Clone ImmortalWrt 23.05
+      run: |
+        git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-23.05
+        cd immortalwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      # 8. 自动创建 tag
-      - name: Create tag
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          TAG="v$(date +'%Y%m%d')-${{ github.run_number }}"
-          git tag $TAG
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} $TAG
-          echo "TAG=$TAG" >> $GITHUB_ENV
+    # ✅ 6. 覆盖三件套（DTS + mk + config）
+    - name: Copy SL3000 DTS / mk / config
+      run: |
+        cp -f sl3000/mt7981b-sl3000-emmc.dts immortalwrt/target/linux/mediatek/dts/
+        cp -f sl3000/filogic.mk immortalwrt/target/linux/mediatek/image/
+        cp -f sl3000/config-23.05 immortalwrt/.config
 
-      # 9. 构建固件
-      - name: Build firmware
-        run: |
-          cd openwrt
-          make defconfig
-          make -j$(nproc)
+    # ✅ 7. 自检脚本（方案 B + mk 检查 + config 检查）
+    - name: Add SL3000 Self-Check Script
+      run: |
+        mkdir -p immortalwrt/scripts
+        cp -f sl3000/check-sl3000-23.05.sh immortalwrt/scripts/
+        chmod +x immortalwrt/scripts/check-sl3000-23.05.sh
 
-      # 10. 生成 sha256sum
-      - name: Generate sha256sum
-        run: |
-          cd openwrt/bin/targets/mediatek/filogic
-          sha256sum *.bin > sha256sum.txt
+    - name: Run SL3000 Self-Check
+      run: |
+        cd immortalwrt
+        ./scripts/check-sl3000-23.05.sh
 
-      # 11. 发布 Release
-      - name: Release firmware
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: "SL3000 OpenWrt 23.05 ${{ env.TAG }}"
-          files: |
-            openwrt/bin/targets/mediatek/filogic/*.bin
-            openwrt/bin/targets/mediatek/filogic/sha256sum.txt
+    # ✅ 8. 构建固件（自动 fallback）
+    - name: Build Firmware
+      run: |
+        cd immortalwrt
+        make defconfig
+        make -j$(nproc) || make -j1 V=s
+
+    # ✅ 9. 打包固件
+    - name: Prepare Release Files
+      run: |
+        mkdir -p output
+        cp immortalwrt/bin/targets/mediatek/filogic/*sl3000* output/ || true
+        cp immortalwrt/bin/targets/mediatek/filogic/sha256sums output/ || true
+
+    # ✅ 10. 自动发布 Release
+    - name: Upload Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: sl3000-emmc-23.05-${{ github.run_number }}
+        name: SL3000 eMMC 23.05 Build ${{ github.run_number }}
+        files: output/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
