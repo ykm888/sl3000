@@ -35,11 +35,7 @@ jobs:
 
     - name: 覆盖三件套到官方源码
       run: |
-        # 覆盖 mt7981.mk
-        cp myrepo/target/linux/mediatek/image/mt7981.mk \
-           openwrt/target/linux/mediatek/image/
-
-        # 覆盖 DTS
+        cp myrepo/target/linux/mediatek/image/mt7981.mk openwrt/target/linux/mediatek/image/
         mkdir -p openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
         cp myrepo/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
            openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
@@ -50,7 +46,6 @@ jobs:
         #!/bin/bash
         echo "=== SL3000 环境自检开始 ==="
 
-        # 1. 检查 mt7981.mk 是否存在
         if [ ! -f "target/linux/mediatek/image/mt7981.mk" ]; then
             echo "❌ 缺少 mt7981.mk"
             exit 1
@@ -58,7 +53,6 @@ jobs:
             echo "✅ mt7981.mk 存在"
         fi
 
-        # 2. 检查 mt7981.mk 是否包含设备定义
         grep -q "Device/sl3000-emmc" target/linux/mediatek/image/mt7981.mk
         if [ $? -ne 0 ]; then
             echo "❌ mt7981.mk 中没有 Device/sl3000-emmc 定义"
@@ -67,7 +61,6 @@ jobs:
             echo "✅ mt7981.mk 中包含 Device/sl3000-emmc"
         fi
 
-        # 3. 检查 DTS 路径
         if [ ! -f "target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" ]; then
             echo "❌ DTS 文件不存在"
             exit 1
@@ -75,7 +68,6 @@ jobs:
             echo "✅ DTS 文件存在"
         fi
 
-        # 4. 检查 defconfig 后是否启用 SL3000
         grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config
         if [ $? -ne 0 ]; then
             echo "❌ .config 中未启用 SL3000"
@@ -84,25 +76,25 @@ jobs:
             echo "✅ .config 已启用 SL3000"
         fi
 
-        echo "=== ✅ SL3000 环境自检通过，可以安全构建 ==="
+        echo "=== ✅ SL3000 环境自检通过 ==="
         exit 0
         EOF
 
         chmod +x openwrt/check-sl3000-env.sh
 
-    - name: 强制启用 SL3000 + 合并你的 sl3000.config（最终正确版）
+    - name: 强制启用 SL3000 + 合并 sl3000.config（最终修复版）
       run: |
         cd openwrt
 
-        # 先写强制启用 SL3000 的三行
+        # ✅ 必须先写 SL3000 强制启用三行
         echo "CONFIG_TARGET_mediatek=y" > .config
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-        # ✅ 关键：直接从你的仓库路径追加 config（不会错）
+        # ✅ 你的 sl3000.config 路径已确认：myrepo/configs/sl3000.config
         cat ../myrepo/configs/sl3000.config >> .config
 
-        # 生成最终配置
+        # ✅ 生成最终配置
         make defconfig
 
     - name: 运行 SL3000 环境自检
