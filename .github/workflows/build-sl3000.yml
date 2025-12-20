@@ -73,7 +73,7 @@ jobs:
       run: |
         cp -f sl3000/mt7981b-sl3000-emmc.dts /mnt/immortalwrt/target/linux/mediatek/dts/
         cp -f sl3000/filogic.mk /mnt/immortalwrt/target/linux/mediatek/image/
-        cp -f sl3000/config-23.05 /mnt/immortalwrt/.config
+        cp -f sl3000/config-23.05.config /mnt/immortalwrt/.config
 
     # ✅ 7. 自检脚本（方案 B + mk 检查 + config 检查）
     - name: Add SL3000 Self-Check Script
