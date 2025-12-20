@@ -1,0 +1,85 @@
+name: Build SL3000 (ImmortalWrt 24.10)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 拉取你的 SL3000 仓库
+      - name: Checkout SL3000 repo
+        uses: actions/checkout@v4
+
+      # 2. 克隆 ImmortalWrt 24.10 源码
+      - name: Clone ImmortalWrt 24.10
+        run: |
+          git clone https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 immortalwrt
+          cd immortalwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # 3. 覆盖三件套（严格使用你指定的路径）
+      - name: Apply SL3000 device files
+        run: |
+          # DTS
+          mkdir -p immortalwrt/target/linux/mediatek/dts/
+          cp dts/mt7981b-sl3000-emmc.dts \
+             immortalwrt/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+
+          # mk（image/filogic.mk）
+          cp image/filogic.mk immortalwrt/target/linux/mediatek/image/filogic.mk
+
+          # config（.config）
+          cp .config immortalwrt/.config
+
+      # 4. 磁盘优化
+      - name: Expand disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/lib/android
+          sudo docker system prune -af || true
+          sudo apt-get clean
+          df -h
+
+      # 5. dl 缓存
+      - name: Cache dl
+        uses: actions/cache@v4
+        with:
+          path: immortalwrt/dl
+          key: ${{ runner.os }}-dl-24-10-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-dl-24-10-
+
+      # 6. ccache 缓存
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-24-10-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-24-10-
+
+      # 7. 构建固件
+      - name: Build ImmortalWrt 24.10
+        run: |
+          cd immortalwrt
+          make defconfig
+          make -j$(nproc)
+
+      # 8. 输出固件目录
+      - name: List firmware
+        run: |
+          ls -R immortalwrt/bin/targets/mediatek/filogic || true
+
+      # 9. 上传构建产物
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-immortalwrt-24.10
+          path: immortalwrt/bin/targets/mediatek/filogic/*
