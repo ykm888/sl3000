@@ -44,9 +44,6 @@ jobs:
         cp myrepo/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
            openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 
-        # 保存你的 sl3000.config
-        cp myrepo/configs/sl3000.config openwrt/sl3000.base
-
     - name: 写入 SL3000 环境自检脚本
       run: |
         cat << 'EOF' > openwrt/check-sl3000-env.sh
@@ -102,7 +99,7 @@ jobs:
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-        # ✅ 关键：直接从你的仓库追加 config，路径绝对正确
+        # ✅ 关键：直接从你的仓库路径追加 config（不会错）
         cat ../myrepo/configs/sl3000.config >> .config
 
         # 生成最终配置
