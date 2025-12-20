@@ -1,4 +1,4 @@
-// target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+// dts/mt7981b-sl3000-emmc.dts
 
 /dts-v1/;
 #include "mt7981.dtsi"
@@ -16,9 +16,46 @@
         stdout-path = &uart0;
         bootargs = "console=ttyS0,115200n8";
     };
+
+    aliases {
+        led-boot = &led_status;
+        led-failsafe = &led_status;
+        led-running = &led_status;
+        led-upgrade = &led_status;
+    };
 };
 
-/* SPI NOR 32MB: W25Q256FSSIG */
+/* UART */
+&uart0 {
+    status = "okay";
+};
+
+/* GPIO / LED */
+&gpio {
+    status = "okay";
+};
+
+&leds {
+    status = "okay";
+
+    led_status: status {
+        label = "sl3000:blue:status";
+        gpios = <&gpio 12 GPIO_ACTIVE_HIGH>;
+    };
+};
+
+/* Reset 按键 */
+&keys {
+    status = "okay";
+
+    reset {
+        label = "reset";
+        gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
+        linux,code = <KEY_RESTART>;
+    };
+};
+
+/* SPI NOR 32MB */
 &spi0 {
     status = "okay";
 
@@ -28,19 +65,16 @@
         spi-max-frequency = <52000000>;
         #address-cells = <1>;
         #size-cells = <1>;
-        // 分区布局根据你现有 23.05 DTS 的分区来迁移
     };
 };
 
-/* 128GB eMMC: HSEMSDS7D2B128G */
+/* eMMC 128GB */
 &mmc0 {
     bus-width = <8>;
     max-frequency = <200000000>;
     cap-mmc-highspeed;
     non-removable;
     status = "okay";
-
-    /* 分区采用 GPT，由 24.10 的 image 构建生成 */
 };
 
 /* 内置 WiFi (MT7981) */
@@ -48,16 +82,12 @@
     status = "okay";
 };
 
-/* 外挂 5G: MT7976CN，PCIe 或 SDIO 视你硬件而定。
-
-   如果是 PCIe 5G：
-*/
+/* 外挂 WiFi (MT7976CN) */
 &pcie {
     status = "okay";
 
     wifi@0,0 {
         compatible = "mediatek,mt76";
         reg = <0 0 0 0 0>;
-        /* 这里具体参数可以参考 cmcc_rax3000m 的 DTS */
     };
 };
