@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /dts-v1/;
+
 #include "mt7981.dtsi"
 
 / {
@@ -21,6 +23,28 @@
         led-running = &led_status;
         led-upgrade = &led_status;
     };
+
+    /* LED 控制器节点（自己定义一个 gpio-leds） */
+    leds {
+        compatible = "gpio-leds";
+
+        led_status: status {
+            label = "sl3000:blue:status";
+            gpios = <&gpio 12 GPIO_ACTIVE_HIGH>;
+            default-state = "on";
+        };
+    };
+
+    /* 按键节点 */
+    keys {
+        compatible = "gpio-keys";
+
+        reset {
+            label = "reset";
+            gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_RESTART>;
+        };
+    };
 };
 
 /* UART */
@@ -28,32 +52,12 @@
     status = "okay";
 };
 
-/* GPIO / LED */
+/* GPIO 控制器 */
 &gpio {
     status = "okay";
 };
 
-&leds {
-    status = "okay";
-
-    led_status: status {
-        label = "sl3000:blue:status";
-        gpios = <&gpio 12 GPIO_ACTIVE_HIGH>;
-    };
-};
-
-/* Reset 按键 */
-&keys {
-    status = "okay";
-
-    reset {
-        label = "reset";
-        gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
-        linux,code = <KEY_RESTART>;
-    };
-};
-
-/* SPI NOR 32MB */
+/* SPI NOR 32MB: 25Q256FSSIG */
 &spi0 {
     status = "okay";
 
@@ -63,10 +67,12 @@
         spi-max-frequency = <52000000>;
         #address-cells = <1>;
         #size-cells = <1>;
+
+        /* 这里的分区你后面再按实际情况补 */
     };
 };
 
-/* eMMC 128GB */
+/* eMMC 128GB: HSEMSDS7D2B128G */
 &mmc0 {
     bus-width = <8>;
     max-frequency = <200000000>;
@@ -80,7 +86,7 @@
     status = "okay";
 };
 
-/* 外挂 WiFi (MT7976CN) */
+/* 外挂 WiFi (MT7976CN) — 先按 pcie 占位 */
 &pcie {
     status = "okay";
 
