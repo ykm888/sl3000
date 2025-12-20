@@ -2,25 +2,12 @@ name: Build SL3000 Firmware
 
 on:
   workflow_dispatch:
-    inputs:
-      code:
-        description: "请输入验证码（必须输入 3000 才能继续构建）"
-        required: true
-        default: "3000"
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: 验证验证码
-      run: |
-        if [ "${{ github.event.inputs.code }}" != "3000" ]; then
-          echo "❌ 验证码错误，构建终止"
-          exit 1
-        fi
-        echo "✅ 验证码正确，开始构建"
-
     - name: 释放磁盘空间
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
@@ -57,8 +44,8 @@ jobs:
         cp myrepo/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/*.dts \
            openwrt/target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
 
-        # 覆盖 .config
-        cp myrepo/configs/sl3000.config openwrt/.config
+        # 保存你的 sl3000.config
+        cp myrepo/configs/sl3000.config openwrt/sl3000.base
 
     - name: 写入 SL3000 环境自检脚本
       run: |
@@ -106,12 +93,19 @@ jobs:
 
         chmod +x openwrt/check-sl3000-env.sh
 
-    - name: 强制启用 SL3000
+    - name: 强制启用 SL3000 + 合并你的 sl3000.config
       run: |
         cd openwrt
+
+        # 先写强制启用 SL3000 的三行
         echo "CONFIG_TARGET_mediatek=y" > .config
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
+
+        # 再把你的 sl3000.config 追加进去（不能覆盖）
+        cat sl3000.base >> .config
+
+        # 生成最终配置
         make defconfig
 
     - name: 运行 SL3000 环境自检
