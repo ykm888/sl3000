@@ -1,4 +1,4 @@
-name: Build SL3000 eMMC (24.10 Image Only)
+name: Build SL3000 eMMC (24.10 Stable)
 
 on:
   workflow_dispatch:
@@ -8,22 +8,22 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout repo (triple set & scripts)
+    - name: Checkout triple-set repo
       uses: actions/checkout@v4
 
-    - name: Clean disk space
+    - name: Clean disk
       run: |
         docker system prune -af || true
-        sudo apt clean
-        sudo rm -rf /var/lib/apt/lists/*
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
         sudo rm -rf /opt/hostedtoolcache
+        sudo apt clean
+        sudo rm -rf /var/lib/apt/lists/*
         sudo mkdir -p /mnt/immortalwrt
         sudo chown $USER:$USER /mnt/immortalwrt
 
-    - name: Install build dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -39,56 +39,50 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Copy SL3000 triple set (DTS / mk / .config)
+    - name: Copy SL3000 triple set
       run: |
         cd $GITHUB_WORKSPACE
-
-        # DTS
         cp -f dts/mt7981b-sl3000-emmc.dts \
           /mnt/immortalwrt/target/linux/mediatek/dts/
-
-        # filogic.mk
         cp -f image/filogic.mk \
           /mnt/immortalwrt/target/linux/mediatek/image/
-
-        # .config
         cp -f .config /mnt/immortalwrt/.config
 
-    - name: Patch DTS Makefile for SL3000
+    - name: Patch REAL DTS Makefile (Linux 6.6)
       run: |
-        cd /mnt/immortalwrt/target/linux/mediatek/dts
-        if ! grep -q 'mt7981b-sl3000-emmc.dtb' Makefile; then
-          echo 'dtb-$(CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000_emmc) += mt7981b-sl3000-emmc.dtb' >> Makefile
-        fi
+        DTS_MK="/mnt/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
+        echo "Patching $DTS_MK"
+        echo 'dtb-$(CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000_emmc) += mt7981b-sl3000-emmc.dtb' >> $DTS_MK
 
-    - name: Minimal pre-check for SL3000
+    - name: Patch image Makefile (register device)
+      run: |
+        IMG_MK="/mnt/immortalwrt/target/linux/mediatek/image/Makefile"
+        echo "TARGET_DEVICES += sl3000_emmc" >> $IMG_MK
+
+    - name: Pre-check SL3000
       run: |
         cd /mnt/immortalwrt
         echo "=== SL3000 pre-check ==="
         test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "DTS missing" && exit 1)
         test -f target/linux/mediatek/image/filogic.mk || (echo "filogic.mk missing" && exit 1)
-        test -f .config || (echo ".config missing" && exit 1)
-        grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000_emmc=y' .config || (echo "CONFIG for SL3000 missing" && exit 1)
+        grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000_emmc=y' .config || (echo "CONFIG missing" && exit 1)
         echo "[OK] triple set & config ready"
 
-    - name: Build firmware image only
+    - name: Build firmware
       run: |
         cd /mnt/immortalwrt
         make defconfig
-        # 这里还是用 world，确保依赖齐全，避免因为缺包导致构建中途炸掉
         make -j$(nproc) || make -j1 V=s
 
-    - name: Collect firmware images (no ipk)
+    - name: Collect firmware (no ipk)
       run: |
         mkdir -p $GITHUB_WORKSPACE/output
-        # 只拷贝固件目录，不拷贝 packages/ipk
         cp -r /mnt/immortalwrt/bin/targets/mediatek/filogic/* \
           $GITHUB_WORKSPACE/output/ || true
-        # 确保不带 packages 目录
         rm -rf $GITHUB_WORKSPACE/output/packages || true
 
-    - name: Upload firmware artifacts
+    - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
-        name: sl3000-emmc-24.10-images
+        name: sl3000-emmc-24.10-firmware
         path: output
