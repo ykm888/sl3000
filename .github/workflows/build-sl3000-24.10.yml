@@ -1,4 +1,4 @@
-name: Build SL3000 eMMC (24.10 Final)
+name: Build SL3000 eMMC (24.10)
 
 on:
   workflow_dispatch:
@@ -31,39 +31,35 @@ jobs:
           python3 python3-distutils rsync unzip zlib1g-dev file wget ccache \
           device-tree-compiler
 
-    - name: Enable ccache
-      run: |
-        echo 'export CC="ccache gcc"' >> $GITHUB_ENV
-        echo 'export CXX="ccache g++"' >> $GITHUB_ENV
-        echo 'export CCACHE_DIR=$HOME/.ccache' >> $GITHUB_ENV
-        echo 'export CCACHE_COMPRESS=1' >> $GITHUB_ENV
-
-    - name: Cache Build
-      uses: actions/cache@v4
-      with:
-        path: |
-          /mnt/immortalwrt/dl
-          /mnt/immortalwrt/staging_dir
-          /mnt/immortalwrt/build_dir
-          ~/.ccache
-        key: sl3000-emmc-24.10-${{ hashFiles('sl3000/*') }}
-        restore-keys: |
-          sl3000-emmc-24.10-
-
     - name: Clone ImmortalWrt 24.10
       run: |
         git clone https://github.com/immortalwrt/immortalwrt.git /mnt/immortalwrt
         cd /mnt/immortalwrt
-        git checkout 6a73dae98c9c
+        # 你自己锁定的 24.10 提交/分支，自行替换
+        # 示例：git checkout v24.10.0
+        # 如果你有具体 commit，就在这里写死
+        # git checkout <your-24.10-commit>
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    # ✅ 你锁死的三件套路径（严格按你说的）
-    - name: Copy SL3000 Files
+    - name: Copy SL3000 24.10 Triple Set
       run: |
-        cp -f sl3000/filogic.mk /mnt/immortalwrt/target/linux/mediatek/image/
-        cp -f sl3000/mt7981b-sl3000-emmc.dts /mnt/immortalwrt/target/linux/mediatek/dts/
-        cp -f sl3000/config-24.10.config /mnt/immortalwrt/.config
+        cd $GITHUB_WORKSPACE
+
+        # 三件套：完全使用你仓库里的内容
+        cp -f image/filogic.mk /mnt/immortalwrt/target/linux/mediatek/image/
+        cp -f dts/mt7981b-sl3000-emmc.dts /mnt/immortalwrt/target/linux/mediatek/dts/
+        cp -f .config /mnt/immortalwrt/.config
+
+        # 自检脚本
+        mkdir -p /mnt/immortalwrt/scripts
+        cp -f scripts/check-sl3000-24.10.sh /mnt/immortalwrt/scripts/
+
+    - name: Run SL3000 24.10 Self Check
+      run: |
+        cd /mnt/immortalwrt
+        chmod +x scripts/check-sl3000-24.10.sh
+        scripts/check-sl3000-24.10.sh
 
     - name: Build Firmware
       run: |
@@ -73,15 +69,12 @@ jobs:
 
     - name: Collect Output
       run: |
-        mkdir -p output
-        cp /mnt/immortalwrt/bin/targets/mediatek/filogic/*sl3000* output/ || true
-        cp /mnt/immortalwrt/bin/targets/mediatek/filogic/sha256sums output/ || true
+        mkdir -p $GITHUB_WORKSPACE/output
+        cp /mnt/immortalwrt/bin/targets/mediatek/filogic/*sl3000* $GITHUB_WORKSPACE/output/ || true
+        cp /mnt/immortalwrt/bin/targets/mediatek/filogic/sha256sums $GITHUB_WORKSPACE/output/ || true
 
-    - name: Upload Release
-      uses: softprops/action-gh-release@v2
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
       with:
-        tag_name: sl3000-emmc-24.10-${{ github.run_number }}
-        name: SL3000 eMMC 24.10 Build ${{ github.run_number }}
-        files: output/*
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: sl3000-emmc-24.10
+        path: output
