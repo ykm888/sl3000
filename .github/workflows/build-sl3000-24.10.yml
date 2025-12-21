@@ -47,6 +47,10 @@ jobs:
         cp -f image/filogic.mk /mnt/immortalwrt/target/linux/mediatek/image/
         cp -f .config /mnt/immortalwrt/.config
 
+    - name: Disable LTO (方案 B)
+      run: |
+        echo "CONFIG_USE_LTO=n" >> /mnt/immortalwrt/.config
+
     - name: Patch REAL DTS Makefile (Linux 6.6)
       run: |
         DTS_MK="/mnt/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
@@ -69,7 +73,7 @@ jobs:
         grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000_emmc=y' .config || (echo "❌ .config 未启用设备" && exit 1)
         echo "[OK] triple set & config ready"
 
-    - name: Build firmware (加速 + 防卡死)
+    - name: Build firmware (关闭 LTO + 防卡死)
       run: |
         cd /mnt/immortalwrt
         make defconfig
