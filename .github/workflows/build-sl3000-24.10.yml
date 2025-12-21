@@ -1,4 +1,3 @@
-
 name: Build SL3000 eMMC (24.10 Stable)
 
 on:
@@ -46,7 +45,7 @@ jobs:
         cd $GITHUB_WORKSPACE
         cp -f dts/mt7981b-sl3000-emmc.dts /mnt/immortalwrt/target/linux/mediatek/dts/
         cp -f image/filogic.mk /mnt/immortalwrt/target/linux/mediatek/image/
-        cp -f .config /mnt/immortalwrt/.config
+        cp -f configs/sl3000.config /mnt/immortalwrt/.config
 
     - name: Disable LTO (防止 OOM)
       run: |
