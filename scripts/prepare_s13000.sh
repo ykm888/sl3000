@@ -6,6 +6,12 @@ REPO="$GITHUB_WORKSPACE"
 
 echo "=== Prepare S13000 triple-set ==="
 
+# ✅ 前置检查：仓库 DTS 是否存在
+if [ ! -f "$REPO/dts/mt7981b-s13000-emmc.dts" ]; then
+    echo "❌ 仓库缺少 DTS 文件：mt7981b-s13000-emmc.dts"
+    exit 1
+fi
+
 # 1. DTS
 cp -f "$REPO/dts/mt7981b-s13000-emmc.dts" \
   "$ROOT/target/linux/mediatek/dts/"
@@ -17,13 +23,3 @@ cp -f "$REPO/image/filogic.mk" \
 # 3. config
 cp -f "$REPO/configs/s13000.config" \
   "$ROOT/.config"
-
-# 4. Disable LTO
-echo "CONFIG_USE_LTO=n" >> "$ROOT/.config"
-
-# 5. DTS Makefile patch
-DTS_MK="$ROOT/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
-grep -q 'mt7981b-s13000-emmc.dtb' "$DTS_MK" || \
-  echo 'dtb-$(CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc) += mt7981b-s13000-emmc.dtb' >> "$DTS_MK"
-
-echo "[OK] S13000 triple-set prepared."
