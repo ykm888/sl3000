@@ -1,49 +1,37 @@
 #!/usr/bin/env bash
 set -e
 
+echo "===== S13000 构建前检查脚本（自动检测 + fail-fast）====="
+
 ROOT="/home/runner/immortalwrt"
 
-echo "=== [S13000] Apply DTS / MK / CONFIG ==="
+CONFIG_FILE="$ROOT/.config"
+DTS_FILE="$ROOT/target/linux/mediatek/dts/mt7981b-s13000-emmc.dts"
+MK_FILE="$ROOT/target/linux/mediatek/image/filogic.mk"
+DTS_MAKEFILE="$ROOT/target/linux/mediatek/dts/Makefile"
 
-# 1. DTS
-SRC_DTS="dts/mt7981b-s13000-emmc.dts"
-DST_DTS="$ROOT/target/linux/mediatek/dts/mt7981b-s13000-emmc.dts"
+echo "[1] 检查 DTS 文件..."
+[ -f "$DTS_FILE" ] || { echo "❌ DTS 缺失：$DTS_FILE"; exit 1; }
+echo "✅ DTS 存在"
 
-if [ ! -f "$SRC_DTS" ]; then
-    echo "❌ 源 DTS 不存在：$SRC_DTS"
-    exit 1
-fi
+echo "[2] 检查 filogic.mk..."
+grep -q "DEVICE_DTS *:= *mt7981b-s13000-emmc" "$MK_FILE" \
+  || { echo "❌ filogic.mk 未对齐 DEVICE_DTS"; exit 1; }
+echo "✅ filogic.mk 对齐正确"
 
-cp -f "$SRC_DTS" "$DST_DTS"
-echo "[OK] DTS applied → $DST_DTS"
+echo "[3] 检查 DTS Makefile 注册..."
+grep -q "mt7981b-s13000-emmc.dts" "$DTS_MAKEFILE" \
+  || { echo "❌ DTS Makefile 未注册"; exit 1; }
+echo "✅ DTS 已注册"
 
-# 2. MK
-SRC_MK="image/filogic.mk"
-DST_MK="$ROOT/target/linux/mediatek/image/filogic.mk"
+echo "[4] 清理 .config..."
+BAD_PKGS=(asterisk onionshare pysocks unidecode uw-imap)
+for pkg in "${BAD_PKGS[@]}"; do sed -i "/$pkg/d" "$CONFIG_FILE"; done
+echo "✅ .config 清理完成"
 
-if [ ! -f "$SRC_MK" ]; then
-    echo "❌ 源 filogic.mk 不存在：$SRC_MK"
-    exit 1
-fi
+echo "[5] 检查目标设备符号..."
+grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc=y" "$CONFIG_FILE" \
+  || { echo "❌ .config 未启用 S13000 设备"; exit 1; }
+echo "✅ .config 已启用 S13000"
 
-cp -f "$SRC_MK" "$DST_MK"
-echo "[OK] filogic.mk updated"
-
-# 3. CONFIG
-SRC_CONFIG="configs/s13000.config"
-DST_CONFIG="$ROOT/.config"
-
-if [ ! -f "$SRC_CONFIG" ]; then
-    echo "❌ 源 config 不存在：$SRC_CONFIG"
-    exit 1
-fi
-
-cp -f "$SRC_CONFIG" "$DST_CONFIG"
-echo "[OK] .config applied"
-
-# 4. 清理构建缓存（安全，不动 dl/staging_dir）
-rm -rf $ROOT/tmp/*
-rm -rf $ROOT/build_dir/*
-
-echo "[OK] Build cache cleaned"
-echo "=== [S13000] prepare_s13000.sh 完成 ==="
+echo "===== 所有检查通过，S13000 构建环境已准备完毕 ====="
