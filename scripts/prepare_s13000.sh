@@ -18,10 +18,10 @@ cp -f "$REPO/image/filogic.mk" \
 cp -f "$REPO/configs/s13000.config" \
   "$ROOT/.config"
 
-# 4. 关闭 LTO（更稳）
+# 4. Disable LTO
 echo "CONFIG_USE_LTO=n" >> "$ROOT/.config"
 
-# 5. DTS Makefile 注册 dtb
+# 5. DTS Makefile patch
 DTS_MK="$ROOT/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
 grep -q 'mt7981b-s13000-emmc.dtb' "$DTS_MK" || \
   echo 'dtb-$(CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc) += mt7981b-s13000-emmc.dtb' >> "$DTS_MK"
