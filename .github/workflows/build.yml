@@ -12,7 +12,7 @@ jobs:
       uses: actions/checkout@v4
 
     # ============================
-    # 释放最大磁盘空间
+    # 最大化释放磁盘空间
     # ============================
     - name: Extreme disk clean
       run: |
@@ -26,7 +26,7 @@ jobs:
         df -h
 
     # ============================
-    # 安装依赖
+    # 安装构建依赖
     # ============================
     - name: Install dependencies
       run: |
@@ -44,7 +44,7 @@ jobs:
           -b openwrt-24.10 /home/runner/immortalwrt
 
     # ============================
-    # 恢复缓存（仅 ccache + dl）
+    # 恢复 dl + ccache 缓存（安全）
     # ============================
     - name: Restore ccache
       uses: actions/cache@v4
@@ -61,7 +61,7 @@ jobs:
         restore-keys: dl-${{ runner.os }}-
 
     # ============================
-    # 运行你的唯一脚本 prepare_s13000.sh
+    # 运行你唯一的准备脚本（已合并预检查）
     # ============================
     - name: Prepare & Check S13000
       run: |
