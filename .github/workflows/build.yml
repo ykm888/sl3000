@@ -1,0 +1,64 @@
+name: Build ImmortalWrt S13000
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: 设置工作
+      uses: actions/checkout@v4
+
+    - name: 干净的磁盘
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/local/share/boost
+        sudo docker image prune -a -f
+
+    - name: 安装依赖项
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib \
+          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
+          file wget
+
+    - name: 克隆 ImmortalWrt 24.10
+      run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 /mnt/immortalwrt
+
+    - name: 移除损坏的 MT7986 补丁
+      run: |
+        rm -f /mnt/immortalwrt/target/linux/mediatek/patches-6.6/999-fix-mt7986.patch || true
+
+    - name: 准备 S13000 三重套装
+      run: |
+        chmod +x scripts/prepare_s13000.sh
+        scripts/prepare_s13000.sh
+
+    - name: 预检 S13000 三重套装
+      run: |
+        cd /mnt/immortalwrt
+        echo "=== S13000 triple-set pre-check ==="
+        grep s13000 .config && echo "[OK] triple set & config ready"
+
+    - name: 构建固件
+      run: |
+        cd /mnt/immortalwrt
+        make defconfig
+        echo "[INFO] Build running..."
+        make -j$(nproc) || make -j1 V=s
+
+    - name: 收集固件
+      run: |
+        mkdir -p output
+        cp -rf /mnt/immortalwrt/bin/targets/*/*/* output/ || true
+
+    - name: 上传固件
+      uses: actions/upload-artifact@v4
+      with:
+        name: S13000-firmware
+        path: output
