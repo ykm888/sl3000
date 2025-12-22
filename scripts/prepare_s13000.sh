@@ -2,12 +2,56 @@
 set -e
 
 ROOT="/home/runner/immortalwrt"
+CONFIG="$ROOT/.config"
 
-echo "===== S13000 构建准备 + 检查（最终版）====="
+echo "===== S13000 构建准备 + 依赖预检查（最终合并版）====="
+
+# ============================
+# 0. RootFS 依赖预检查（自动修复）
+# ============================
+
+echo "---- RootFS 依赖预检查 ----"
+
+# luci 主包检查
+if ! grep -q "^CONFIG_PACKAGE_luci=y" "$CONFIG"; then
+    echo "⚠️ 未启用 luci 主包 → 自动启用"
+    echo "CONFIG_PACKAGE_luci=y" >> "$CONFIG"
+fi
+
+# default-settings 依赖 luci
+if grep -q "^CONFIG_PACKAGE_default-settings=y" "$CONFIG"; then
+    if ! grep -q "^CONFIG_PACKAGE_luci=y" "$CONFIG"; then
+        echo "❌ default-settings 依赖 luci，但未启用 luci → 自动禁用 default-settings"
+        sed -i "/CONFIG_PACKAGE_default-settings/d" "$CONFIG"
+    fi
+fi
+
+# iStore 依赖 luci-base
+if grep -q "CONFIG_PACKAGE_luci-app-store=y" "$CONFIG"; then
+    if ! grep -q "CONFIG_PACKAGE_luci-base=y" "$CONFIG"; then
+        echo "⚠️ iStore 缺少 luci-base → 自动补齐"
+        echo "CONFIG_PACKAGE_luci-base=y" >> "$CONFIG"
+    fi
+fi
+
+# 清理损坏的 staging_dir（避免 ABI 冲突）
+if [ -d "$ROOT/staging_dir" ]; then
+    echo "⚠️ 清理 staging_dir（避免 ABI 冲突）"
+    rm -rf "$ROOT/staging_dir"
+fi
+
+# 清理损坏的 dl 包
+echo "⚠️ 清理损坏的 dl 包"
+find "$ROOT/dl" -size 0 -delete || true
+
+echo "---- RootFS 依赖预检查完成 ----"
+
 
 # ============================
 # 1. 复制 DTS
 # ============================
+echo "---- DTS/MK/config 三件套 ----"
+
 SRC_DTS="dts/mt7981b-s13000-emmc.dts"
 DST_DTS="$ROOT/target/linux/mediatek/dts/mt7981b-s13000-emmc.dts"
 
@@ -29,10 +73,9 @@ echo "✅ filogic.mk 已复制"
 # 3. 复制 CONFIG
 # ============================
 SRC_CONFIG="configs/s13000.config"
-DST_CONFIG="$ROOT/.config"
 
 [ -f "$SRC_CONFIG" ] || { echo "❌ 源 config 不存在：$SRC_CONFIG"; exit 1; }
-cp -f "$SRC_CONFIG" "$DST_CONFIG"
+cp -f "$SRC_CONFIG" "$CONFIG"
 echo "✅ .config 已复制"
 
 # ============================
@@ -70,14 +113,14 @@ fi
 BAD_PKGS=(asterisk onionshare pysocks unidecode uw-imap)
 
 for pkg in "${BAD_PKGS[@]}"; do
-    sed -i "/$pkg/d" "$DST_CONFIG"
+    sed -i "/$pkg/d" "$CONFIG"
 done
 echo "✅ .config 无效包已清理"
 
 # ============================
 # 8. 检查设备符号
 # ============================
-grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc=y" "$DST_CONFIG" \
+grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc=y" "$CONFIG" \
   || { echo "❌ .config 未启用 S13000 设备"; exit 1; }
 echo "✅ .config 已启用 S13000 设备"
 
