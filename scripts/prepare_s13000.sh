@@ -1,37 +1,90 @@
 #!/usr/bin/env bash
 set -e
 
-echo "===== S13000 构建前检查脚本（自动检测 + fail-fast）====="
-
 ROOT="/home/runner/immortalwrt"
 
-CONFIG_FILE="$ROOT/.config"
-DTS_FILE="$ROOT/target/linux/mediatek/dts/mt7981b-s13000-emmc.dts"
-MK_FILE="$ROOT/target/linux/mediatek/image/filogic.mk"
-DTS_MAKEFILE="$ROOT/target/linux/mediatek/dts/Makefile"
+echo "===== S13000 构建准备（复制 + 检查 + 清理）====="
 
-echo "[1] 检查 DTS 文件..."
-[ -f "$DTS_FILE" ] || { echo "❌ DTS 缺失：$DTS_FILE"; exit 1; }
+# ============================
+# 1. 复制 DTS
+# ============================
+SRC_DTS="dts/mt7981b-s13000-emmc.dts"
+DST_DTS="$ROOT/target/linux/mediatek/dts/mt7981b-s13000-emmc.dts"
+
+[ -f "$SRC_DTS" ] || { echo "❌ 源 DTS 不存在：$SRC_DTS"; exit 1; }
+
+cp -f "$SRC_DTS" "$DST_DTS"
+echo "✅ DTS 已复制 → $DST_DTS"
+
+# ============================
+# 2. 复制 MK
+# ============================
+SRC_MK="image/filogic.mk"
+DST_MK="$ROOT/target/linux/mediatek/image/filogic.mk"
+
+[ -f "$SRC_MK" ] || { echo "❌ 源 filogic.mk 不存在：$SRC_MK"; exit 1; }
+
+cp -f "$SRC_MK" "$DST_MK"
+echo "✅ filogic.mk 已复制"
+
+# ============================
+# 3. 复制 CONFIG
+# ============================
+SRC_CONFIG="configs/s13000.config"
+DST_CONFIG="$ROOT/.config"
+
+[ -f "$SRC_CONFIG" ] || { echo "❌ 源 config 不存在：$SRC_CONFIG"; exit 1; }
+
+cp -f "$SRC_CONFIG" "$DST_CONFIG"
+echo "✅ .config 已复制"
+
+# ============================
+# 4. 检查 DTS 是否存在
+# ============================
+[ -f "$DST_DTS" ] || { echo "❌ DTS 未成功复制：$DST_DTS"; exit 1; }
 echo "✅ DTS 存在"
 
-echo "[2] 检查 filogic.mk..."
-grep -q "DEVICE_DTS *:= *mt7981b-s13000-emmc" "$MK_FILE" \
+# ============================
+# 5. 检查 filogic.mk DEVICE_DTS
+# ============================
+grep -q "DEVICE_DTS *:= *mt7981b-s13000-emmc" "$DST_MK" \
   || { echo "❌ filogic.mk 未对齐 DEVICE_DTS"; exit 1; }
 echo "✅ filogic.mk 对齐正确"
 
-echo "[3] 检查 DTS Makefile 注册..."
+# ============================
+# 6. 检查 DTS Makefile 注册
+# ============================
+DTS_MAKEFILE="$ROOT/target/linux/mediatek/dts/Makefile"
+
 grep -q "mt7981b-s13000-emmc.dts" "$DTS_MAKEFILE" \
-  || { echo "❌ DTS Makefile 未注册"; exit 1; }
-echo "✅ DTS 已注册"
+  || { echo "❌ DTS Makefile 未注册 mt7981b-s13000-emmc.dts"; exit 1; }
+echo "✅ DTS Makefile 已注册"
 
-echo "[4] 清理 .config..."
+# ============================
+# 7. 清理 .config 中无效包
+# ============================
 BAD_PKGS=(asterisk onionshare pysocks unidecode uw-imap)
-for pkg in "${BAD_PKGS[@]}"; do sed -i "/$pkg/d" "$CONFIG_FILE"; done
-echo "✅ .config 清理完成"
 
-echo "[5] 检查目标设备符号..."
-grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc=y" "$CONFIG_FILE" \
+for pkg in "${BAD_PKGS[@]}"; do
+    sed -i "/$pkg/d" "$DST_CONFIG"
+done
+
+echo "✅ .config 无效包已清理"
+
+# ============================
+# 8. 检查设备符号
+# ============================
+grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_s13000_emmc=y" "$DST_CONFIG" \
   || { echo "❌ .config 未启用 S13000 设备"; exit 1; }
-echo "✅ .config 已启用 S13000"
 
-echo "===== 所有检查通过，S13000 构建环境已准备完毕 ====="
+echo "✅ .config 已启用 S13000 设备"
+
+# ============================
+# 9. 清理构建缓存（安全）
+# ============================
+rm -rf $ROOT/tmp/* || true
+rm -rf $ROOT/build_dir/* || true
+
+echo "✅ 构建缓存已清理"
+
+echo "===== S13000 构建准备完成（全部通过）====="
