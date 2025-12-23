@@ -1,11 +1,11 @@
-"name": "Build SL3000"
+name: "Build SL3000"
 
-"on":
-  "workflow_dispatch": {}
+on:
+  workflow_dispatch:
 
 jobs:
-  "build":
-    "runs-on": "ubuntu-22.04"
+  build:
+    runs-on: "ubuntu-22.04"
 
     steps:
     - name: "Checkout repo"
@@ -32,6 +32,9 @@ jobs:
         key: "dl-${{ runner.os }}"
         restore-keys: "dl-"
 
+    - name: "Clean old ImmortalWrt"
+      run: rm -rf /home/runner/immortalwrt
+
     - name: "Clone ImmortalWrt"
       run: |
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git \
@@ -51,21 +54,25 @@ jobs:
 
         make defconfig
 
+        # 自动修复工具链
         make tools/compile -j1 V=s || {
           echo "⚠️ 工具链编译失败，自动清理并重试..."
           rm -rf build_dir/host/stamp tools/stamp staging_dir/host/stamp
           make tools/compile -j1 V=s
         }
 
+        # 自动修复 dl 下载失败
         make download -j8 || {
           echo "⚠️ dl 下载失败，自动清理并重试..."
           rm -rf dl/*
           make download -j8
         }
 
+        # 自动修复 feeds
         ./scripts/feeds update -a || true
         ./scripts/feeds install -a || true
 
+        # 构建 world
         timeout 1200 make -j1 V=s | tee build.log || {
           echo "❌ 构建失败，收集错误日志..."
           tail -n 200 build.log > error.log || echo "无 build.log" > error.log
@@ -77,21 +84,21 @@ jobs:
         ccache -s || true
 
     - name: "Upload error log"
-      if: "failure()"
+      if: failure()
       uses: "actions/upload-artifact@v4"
       with:
         name: "error-log"
         path: "error.log"
 
     - name: "Upload firmware"
-      if: "success()"
+      if: success()
       uses: "actions/upload-artifact@v4"
       with:
         name: "firmware"
         path: "/home/runner/immortalwrt/bin/targets/*/*/*"
 
     - name: "Release firmware"
-      if: "success()"
+      if: success()
       uses: "softprops/action-gh-release@v2"
       with:
         tag_name: "sl3000-${{ github.run_number }}"
