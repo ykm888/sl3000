@@ -60,15 +60,15 @@ jobs:
         restore-keys: dl-${{ runner.os }}-
 
     # ============================
-    # 运行你仓库里的唯一准备脚本
+    # 运行你仓库里唯一的准备脚本（固定名称）
     # ============================
     - name: Prepare SL3000
       run: |
-        chmod +x scripts/sl3000-prepare.sh
-        ./scripts/sl3000-prepare.sh
+        chmod +x scripts/prepare_s13000.sh
+        ./scripts/prepare_s13000.sh
 
     # ============================
-    # 构建固件（fail-fast + 完整日志）
+    # 构建固件（fail-fast）
     # ============================
     - name: Build firmware
       run: |
@@ -77,13 +77,12 @@ jobs:
         export CC="ccache gcc"
         export CXX="ccache g++"
 
-        echo "===== 开始构建 ====="
         make defconfig
 
-        # fail-fast：如果 10 分钟无输出 → 自动失败
+        # fail-fast：10 分钟无输出自动失败
         timeout 600 make -j1 V=s || {
           echo "❌ 构建失败，打印最后 200 行日志："
-          tail -n 200 /home/runner/immortalwrt/build.log || true
+          tail -n 200 build.log || true
           exit 1
         }
 
