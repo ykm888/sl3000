@@ -87,14 +87,14 @@ echo "---- RootFS 依赖预检查完成 ----"
 # ============================
 echo "---- DTS/MK 三件套 ----"
 
-SRC_DTS="dts/mt7981b-sl3000-emmc.dts"
+SRC_DTS="target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
 DST_DTS="$ROOT/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
 
 [ -f "$SRC_DTS" ] || { echo "❌ 源 DTS 不存在：$SRC_DTS"; exit 1; }
 cp -f "$SRC_DTS" "$DST_DTS"
 echo "✅ DTS 已复制 → $DST_DTS"
 
-SRC_MK="image/filogic.mk"
+SRC_MK="target/linux/mediatek/image/filogic.mk"
 DST_MK="$ROOT/target/linux/mediatek/image/filogic.mk"
 
 [ -f "$SRC_MK" ] || { echo "❌ 源 filogic.mk 不存在：$SRC_MK"; exit 1; }
