@@ -15,15 +15,15 @@ define Device/sl3000
     kmod-fs-ext4 \
     kmod-mmc \
     kmod-mmc-mtk \
+    dnsmasq-full \
+    ppp-mod-pppoe \
     luci \
     luci-base \
     luci-mod-admin-full \
     luci-theme-bootstrap \
     luci-app-opkg \
     luci-ssl \
-    luci-i18n-base-zh-cn \
-    dnsmasq-full \
-    ppp-mod-pppoe
+    luci-i18n-base-zh-cn
 endef
 
 TARGET_DEVICES += sl3000
