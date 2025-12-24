@@ -89,7 +89,7 @@ jobs:
     - name: "Check firmware output"
       run: |
         echo "=== 固件输出检查 ==="
-        ls -lh /home/runner/immortalwrt/bin/targets/*/*/ || echo "❌ 没有生成固件"
+        ls -lh /home/runner/immortalwrt/bin/targets/mediatek/filogic/ || echo "❌ 没有生成固件"
 
     - name: "Upload error log"
       if: failure()
@@ -103,7 +103,7 @@ jobs:
       uses: "actions/upload-artifact@v4"
       with:
         name: "firmware"
-        path: "/home/runner/immortalwrt/bin/targets/*/*/*"
+        path: "/home/runner/immortalwrt/bin/targets/mediatek/filogic/*"
 
     - name: "Release firmware"
       if: success()
@@ -116,6 +116,6 @@ jobs:
           - 构建编号：${{ github.run_number }}
           - 缓存：dl
           - 自动修复：工具链 / dl / feeds / 磁盘
-        files: "/home/runner/immortalwrt/bin/targets/*/*/*"
+        files: "/home/runner/immortalwrt/bin/targets/mediatek/filogic/*"
       env:
         GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
