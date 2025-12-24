@@ -1,0 +1,9 @@
+define Device/sl3000
+  DEVICE_VENDOR := SL
+  DEVICE_MODEL := 3000
+  DEVICE_DTS := mt7981b-sl3000-emmc
+  IMAGE_SIZE := 256m
+  SUPPORTED_DEVICES := sl3000
+endef
+
+TARGET_DEVICES += sl3000
