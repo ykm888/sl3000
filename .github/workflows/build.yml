@@ -42,8 +42,8 @@ jobs:
 
     - name: "Prepare SL3000"
       run: |
-        chmod +x scripts/prepare_s13000.sh
-        ./scripts/prepare_s13000.sh
+        chmod +x scripts/prepare_sl3000.sh
+        ./scripts/prepare_sl3000.sh
 
     - name: "Build firmware"
       run: |
