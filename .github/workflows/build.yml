@@ -34,12 +34,10 @@ jobs:
 
     - name: Copy SL3000 三件套
       run: |
-        mkdir -p /home/runner/immortalwrt/target/linux/mediatek/dts
-        mkdir -p /home/runner/immortalwrt/target/linux/mediatek/image
-        cp .config /home/runner/immortalwrt/.config
-        cp target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts \
+        cp $GITHUB_WORKSPACE/.config /home/runner/immortalwrt/.config
+        cp $GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts \
            /home/runner/immortalwrt/target/linux/mediatek/dts/
-        cp target/linux/mediatek/image/filogic.mk \
+        cp $GITHUB_WORKSPACE/image/filogic.mk \
            /home/runner/immortalwrt/target/linux/mediatek/image/
 
     - name: Cache dl
@@ -82,7 +80,11 @@ jobs:
           echo "CONFIG_CRASH_HOTPLUG=y"
         } >> .config
 
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
+          echo "FATAL: SL3000 config not applied"
+          exit 1
+        }
+
         grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
 
         sed -i "/^CONFIG_PACKAGE_default-settings=y/d" .config
