@@ -66,7 +66,7 @@ jobs:
 
         export MAKEFLAGS=
         export PARALLEL_JOBS=1
-        export FORCE_UNSAFE_CONFIGURE=1
+        export FORCEUNSAFECONFIGURE=1
         export NOCONFIGURE=1
 
         echo "===== SL3000 自动修复开始 ====="
@@ -82,7 +82,7 @@ jobs:
           echo "CONFIG_CRASH_HOTPLUG=y"
         } >> .config
 
-        grep -q "sl3000" .config || echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl3000=y" >> .config
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
         grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
 
         sed -i "/^CONFIG_PACKAGE_default-settings=y/d" .config
@@ -95,14 +95,14 @@ jobs:
         find dl -size 0 -delete || true
         find target -name "*.rej" -delete
         find target -name "*.orig" -delete
-        rm -rf tmp/* build_dir/* staging_dir/* || true
+        rm -rf tmp/ builddir/ stagingdir/* || true
 
         mkdir -p staging_dir/host/bin
         echo -e '#!/bin/sh\nexit 0' > staging_dir/host/bin/autoreconf
         chmod +x staging_dir/host/bin/autoreconf
 
         env -i PATH="$PATH" HOME="$HOME" CCACHE_DIR="$HOME/.ccache" \
-          MAKEFLAGS= FORCE_UNSAFE_CONFIGURE=1 NOCONFIGURE=1 \
+          MAKEFLAGS= FORCEUNSAFECONFIGURE=1 NOCONFIGURE=1 \
           make tools/compile -j1 V=s || exit 1
 
         export CCACHE_DIR=~/.ccache
