@@ -56,7 +56,7 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Prepare SL3000 (全链路修复)
+    - name: Prepare SL3000 (全链路修复+断言验证)
       run: |
         set -e
         ROOT="/home/runner/immortalwrt"
@@ -67,8 +67,23 @@ jobs:
         export FORCEUNSAFECONFIGURE=1
         export NOCONFIGURE=1
 
-        echo "===== SL3000 自动修复开始 ====="
+        echo "===== 验证 .config 是否存在 ====="
+        test -f .config || { echo "FATAL: .config not found"; exit 1; }
+        grep CONFIG_TARGET .config || { echo "FATAL: .config missing target"; exit 1; }
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
+          echo "FATAL: SL3000 config not applied BEFORE defconfig"
+          exit 1
+        }
 
+        echo "===== 验证 DTS 和 MK 是否存在 ====="
+        ls -l target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || { echo "FATAL: DTS missing"; exit 1; }
+        ls -l target/linux/mediatek/image/filogic.mk || { echo "FATAL: MK missing"; exit 1; }
+
+        echo "===== feeds 更新 ====="
+        ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
+        ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
+
+        echo "===== SL3000 自动修复开始 ====="
         make defconfig
         yes "" | make kernel_oldconfig
 
@@ -81,11 +96,12 @@ jobs:
         } >> .config
 
         grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
-          echo "FATAL: SL3000 config not applied"
+          echo "FATAL: SL3000 config not applied AFTER defconfig"
           exit 1
         }
 
-        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
+        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || \
+          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
 
         sed -i "/^CONFIG_PACKAGE_default-settings=y/d" .config
         grep -q "^CONFIG_PACKAGE_luci=y" .config || echo "CONFIG_PACKAGE_luci=y" >> .config
@@ -110,29 +126,6 @@ jobs:
         export CCACHE_DIR=~/.ccache
         ccache -M 2G || true
         ccache -z || true
-
-        # 注入 EMMC 自动扩容脚本
-        mkdir -p files/etc/init.d
-        {
-          echo '#!/bin/sh /etc/rc.common'
-          echo 'START=99'
-          echo 'STOP=10'
-          echo 'start() {'
-          echo 'FLAG=/etc/.emmc_resized'
-          echo '[ -f "$FLAG" ] && return 0'
-          echo 'rootdev="$(awk '\''$2=="/"{print $1}'\'' /proc/mounts)"'
-          echo '[ -b "$rootdev" ] || return 0'
-          echo 'if command -v parted >/dev/null 2>&1 && command -v resize2fs >/dev/null 2>&1; then'
-          echo 'base="${rootdev%p[0-9]*}"'
-          echo 'part="${rootdev##*p}"'
-          echo '[ "$base" != "$rootdev" ] && [ -n "$part" ] && parted "$base" resizepart "$part" 100% || true'
-          echo 'resize2fs "$rootdev" || true'
-          echo 'touch "$FLAG"'
-          echo 'fi'
-          echo '/etc/init.d/emmc-resize disable >/dev/null 2>&1 || true'
-          echo '}'
-        } > files/etc/init.d/emmc-resize
-        chmod +x files/etc/init.d/emmc-resize
 
         echo "===== SL3000 自动修复完成 ====="
 
