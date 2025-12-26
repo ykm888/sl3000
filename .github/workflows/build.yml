@@ -43,35 +43,62 @@ jobs:
         cp -f "$GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk" \
               /home/runner/immortalwrt/target/linux/mediatek/image/ || true
 
-    - name: Prepare SL3000 (注册设备 + 自动修复)
+    - name: Cache dl
+      uses: actions/cache@v4
+      with:
+        path: /home/runner/immortalwrt/dl
+        key: "dl-${{ runner.os }}"
+        restore-keys: |
+          dl-
+
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: "ccache-${{ runner.os }}-${{ github.run_id }}"
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    - name: Prepare SL3000 (自动修复 + 自动注册 + 双断言)
       run: |
         set -e
         cd /home/runner/immortalwrt
 
-        echo "===== DTS 注册兜底 ====="
-        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile || \
-          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile
+        echo "===== DTS 自动注册 ====="
+        DTS_FILE="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
+        DTS_MK="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
+        [ -f "$DTS_FILE" ] || cp "$GITHUB_WORKSPACE/$DTS_FILE" "$DTS_FILE"
+        grep -q "mt7981b-sl3000-emmc.dtb" "$DTS_MK" || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> "$DTS_MK"
 
-        echo "===== MK 补齐兜底 ====="
-        if ! grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk; then
-          echo "define Device/sl3000" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_VENDOR := SL" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_MODEL := 3000" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> target/linux/mediatek/image/filogic.mk
-          echo "  IMAGE_SIZE := 268435456" >> target/linux/mediatek/image/filogic.mk
-          echo "endef" >> target/linux/mediatek/image/filogic.mk
-          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
-        fi
+        echo "===== MK 自动补齐 ====="
+        MK_FILE="target/linux/mediatek/image/filogic.mk"
+        [ -f "$MK_FILE" ] || cp "$GITHUB_WORKSPACE/$MK_FILE" "$MK_FILE"
+        grep -q "define Device/sl3000" "$MK_FILE" || {
+          echo "define Device/sl3000" >> "$MK_FILE"
+          echo "  DEVICE_VENDOR := SL" >> "$MK_FILE"
+          echo "  DEVICE_MODEL := 3000" >> "$MK_FILE"
+          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> "$MK_FILE"
+          echo "  IMAGE_SIZE := 268435456" >> "$MK_FILE"
+          echo "endef" >> "$MK_FILE"
+          echo "TARGET_DEVICES += sl3000" >> "$MK_FILE"
+        }
+        grep -q "TARGET_DEVICES += sl3000" "$MK_FILE" || echo "TARGET_DEVICES += sl3000" >> "$MK_FILE"
 
         echo "===== feeds 更新 + 自动卸载坏包 ====="
         ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
         ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
         ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface || true
 
-        echo "===== 强制目标与设备 ====="
+        echo "===== config 自动修复 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
+
+        echo "===== defconfig 前断言 ====="
+        grep -Eq "CONFIG_TARGET_mediatek=y" .config || { echo "FATAL: mediatek target missing BEFORE defconfig"; exit 1; }
+        grep -Eq "CONFIG_TARGET_mediatek_filogic=y" .config || { echo "FATAL: filogic subtarget missing BEFORE defconfig"; exit 1; }
+        grep -q "define Device/sl3000" "$MK_FILE" || { echo "FATAL: Device/sl3000 block missing BEFORE defconfig"; exit 1; }
+        grep -q "TARGET_DEVICES += sl3000" "$MK_FILE" || { echo "FATAL: TARGET_DEVICES sl3000 missing BEFORE defconfig"; exit 1; }
 
         echo "===== 运行 defconfig ====="
         make defconfig
