@@ -38,12 +38,12 @@ jobs:
     - name: Copy SL3000 config/dts/mk
       run: |
         cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
-        cp -f "$GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts" \
+        cp -f "$GITHUB_WORKSPACE/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" \
               /home/runner/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/ || true
-        cp -f "$GITHUB_WORKSPACE/image/filogic.mk" \
+        cp -f "$GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk" \
               /home/runner/immortalwrt/target/linux/mediatek/image/ || true
 
-    - name: Prepare SL3000 (注册设备 + 双断言)
+    - name: Prepare SL3000 (注册设备 + 自动修复)
       run: |
         set -e
         cd /home/runner/immortalwrt
@@ -63,9 +63,10 @@ jobs:
           echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
         fi
 
-        echo "===== feeds 更新 ====="
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        echo "===== feeds 更新 + 自动卸载坏包 ====="
+        ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
+        ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
+        ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface || true
 
         echo "===== 强制目标与设备 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
@@ -73,6 +74,11 @@ jobs:
         grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
 
         echo "===== 运行 defconfig ====="
+        make defconfig
+
+        echo "===== defconfig 后兜底修复 ====="
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || \
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
         make defconfig
 
         echo "===== defconfig 后断言 ====="
@@ -85,7 +91,14 @@ jobs:
         export CC="ccache gcc"
         export CXX="ccache g++"
 
-        make -j$(nproc) V=s || make -j1 V=s
+        echo "===== 清理 ccache 兜底 ====="
+        ccache -C || true
+
+        echo "===== 编译固件，失败自动重试 ====="
+        make -j$(nproc) V=s || { echo "Retry single job"; make -j1 V=s; }
+
+        df -h
+        ccache -s || true
 
     - name: Generate SHA256 checksums
       run: |
@@ -98,5 +111,22 @@ jobs:
       with:
         name: firmware
         path: |
+          /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
+          /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
+
+    - name: Release firmware
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "sl3000-${{ github.run_number }}"
+        name: "SL3000 Firmware Build #${{ github.run_number }}"
+        body: |
+          自动构建固件（SL3000 / ImmortalWrt 24.10）
+          - 自动验证并修复三件套（.config/DTS/MK）
+          - DTS 自动注册 + 兜底补齐 Device/sl3000
+          - feeds 自动卸载坏包
+          - defconfig 前后双断言防止回落
+          - 编译失败自动重试
+          - 自动生成 SHA256 校验文件
+        files: |
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
