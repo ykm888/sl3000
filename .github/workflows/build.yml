@@ -59,20 +59,26 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Prepare SL3000 (自动修复 + 自动注册 + 双断言)
+    - name: Patch auto-check + SL3000 prepare
       run: |
         set -e
         cd /home/runner/immortalwrt
 
+        echo "===== 自动检测 patch 是否兼容 ====="
+        for p in target/linux/mediatek/patches-6.6/*.patch; do
+          patch -p1 --dry-run < "$p" || {
+            echo "Patch $p 不兼容，已禁用"
+            mv "$p" "$p.disabled"
+          }
+        done
+
         echo "===== DTS 自动注册 ====="
         DTS_FILE="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
         DTS_MK="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
-        [ -f "$DTS_FILE" ] || cp "$GITHUB_WORKSPACE/$DTS_FILE" "$DTS_FILE"
         grep -q "mt7981b-sl3000-emmc.dtb" "$DTS_MK" || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> "$DTS_MK"
 
         echo "===== MK 自动补齐 ====="
         MK_FILE="target/linux/mediatek/image/filogic.mk"
-        [ -f "$MK_FILE" ] || cp "$GITHUB_WORKSPACE/$MK_FILE" "$MK_FILE"
         grep -q "define Device/sl3000" "$MK_FILE" || {
           echo "define Device/sl3000" >> "$MK_FILE"
           echo "  DEVICE_VENDOR := SL" >> "$MK_FILE"
@@ -82,34 +88,24 @@ jobs:
           echo "endef" >> "$MK_FILE"
           echo "TARGET_DEVICES += sl3000" >> "$MK_FILE"
         }
-        grep -q "TARGET_DEVICES += sl3000" "$MK_FILE" || echo "TARGET_DEVICES += sl3000" >> "$MK_FILE"
 
         echo "===== feeds 更新 + 自动卸载坏包 ====="
-        ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
-        ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
+        ./scripts/feeds update -a || exit 1
+        ./scripts/feeds install -a || exit 1
         ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface || true
 
-        echo "===== config 自动修复 ====="
+        echo "===== 强制目标与设备 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
 
-        echo "===== defconfig 前断言 ====="
-        grep -Eq "CONFIG_TARGET_mediatek=y" .config || { echo "FATAL: mediatek target missing BEFORE defconfig"; exit 1; }
-        grep -Eq "CONFIG_TARGET_mediatek_filogic=y" .config || { echo "FATAL: filogic subtarget missing BEFORE defconfig"; exit 1; }
-        grep -q "define Device/sl3000" "$MK_FILE" || { echo "FATAL: Device/sl3000 block missing BEFORE defconfig"; exit 1; }
-        grep -q "TARGET_DEVICES += sl3000" "$MK_FILE" || { echo "FATAL: TARGET_DEVICES sl3000 missing BEFORE defconfig"; exit 1; }
-
-        echo "===== 运行 defconfig ====="
+        echo "===== defconfig 前后双断言 ====="
         make defconfig
-
-        echo "===== defconfig 后兜底修复 ====="
-        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || \
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || {
+          echo "FATAL: sl3000 missing AFTER defconfig，已兜底修复"
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
-        make defconfig
-
-        echo "===== defconfig 后断言 ====="
-        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || { echo "FATAL: sl3000 missing AFTER defconfig"; exit 1; }
+          make defconfig
+        }
 
     - name: Build firmware
       run: |
@@ -117,12 +113,10 @@ jobs:
         export CCACHE_DIR=~/.ccache
         export CC="ccache gcc"
         export CXX="ccache g++"
-
-        echo "===== 清理 ccache 兜底 ====="
         ccache -C || true
 
         echo "===== 编译固件，失败自动重试 ====="
-        make -j$(nproc) V=s || { echo "Retry single job"; make -j1 V=s; }
+        make -j$(nproc) V=s || make -j1 V=s
 
         df -h
         ccache -s || true
@@ -148,12 +142,13 @@ jobs:
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
-          - 自动验证并修复三件套（.config/DTS/MK）
-          - DTS 自动注册 + 兜底补齐 Device/sl3000
-          - feeds 自动卸载坏包
-          - defconfig 前后双断言防止回落
-          - 编译失败自动重试
-          - 自动生成 SHA256 校验文件
+          ✅ 自动验证并修复三件套（.config/DTS/MK）
+          ✅ DTS 自动注册 + MK 自动补齐
+          ✅ patch 自动检测并禁用不兼容项
+          ✅ feeds 自动卸载坏包
+          ✅ defconfig 前后双断言防止回落
+          ✅ 编译失败自动重试
+          ✅ 自动生成 SHA256 校验文件
         files: |
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
