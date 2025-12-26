@@ -34,12 +34,9 @@ jobs:
 
     - name: Copy SL3000 config/dts/mk
       run: |
-        set -e
         cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
-        mkdir -p /home/runner/immortalwrt/target/linux/mediatek/dts
         cp -f "$GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts" \
               /home/runner/immortalwrt/target/linux/mediatek/dts/ || true
-        mkdir -p /home/runner/immortalwrt/target/linux/mediatek/image
         cp -f "$GITHUB_WORKSPACE/image/filogic.mk" \
               /home/runner/immortalwrt/target/linux/mediatek/image/ || true
 
@@ -59,74 +56,34 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Prepare SL3000 (注册设备 + 兜底补齐 + 双断言)
+    - name: Prepare SL3000 (注册设备 + 双断言)
       run: |
         set -e
         cd /home/runner/immortalwrt
-
-        echo "===== 验证三件套存在性 ====="
-        test -f .config || { echo "FATAL: .config missing"; exit 1; }
-        test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || { echo "FATAL: DTS missing"; exit 1; }
-        test -f target/linux/mediatek/image/filogic.mk || { echo "FATAL: MK missing"; exit 1; }
 
         echo "===== DTS 注册兜底 ====="
         grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || \
           echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
 
-        echo "===== 设备定义兜底（确保 Device/sl3000 存在）====="
+        echo "===== MK 补齐兜底 ====="
         if ! grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk; then
-          cat >> target/linux/mediatek/image/filogic.mk <<'EOF'
-define Device/sl3000
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  SUPPORTED_DEVICES := sl3000
-  IMAGE_SIZE := 268435456
-
-  DEVICE_PACKAGES := \
-    kmod-mt7981-firmware \
-    kmod-mt76 \
-    kmod-mt76-core \
-    kmod-mt76-connac \
-    wpad-basic-mbedtls \
-    iwinfo \
-    kmod-leds-gpio \
-    kmod-gpio-button-hotplug \
-    kmod-mediatek_eth \
-    kmod-mediatek_hnat \
-    kmod-mt7531 \
-    block-mount \
-    kmod-fs-ext4 \
-    kmod-mmc \
-    kmod-mmc-mtk \
-    e2fsprogs \
-    kmod-nls-base \
-    dnsmasq-full \
-    ppp \
-    ppp-mod-pppoe \
-    uhttpd \
-    uhttpd-mod-ubus \
-    libustream-mbedtls \
-    rpcd \
-    rpcd-mod-rrdns \
-    luci \
-    luci-base \
-    luci-mod-admin-full \
-    luci-theme-bootstrap \
-    luci-app-opkg \
-    luci-ssl \
-    luci-i18n-base-zh-cn
-endef
-EOF
+          echo "define Device/sl3000" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_VENDOR := SL" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_MODEL := 3000" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> target/linux/mediatek/image/filogic.mk
+          echo "  SUPPORTED_DEVICES := sl3000" >> target/linux/mediatek/image/filogic.mk
+          echo "  IMAGE_SIZE := 268435456" >> target/linux/mediatek/image/filogic.mk
+          echo "endef" >> target/linux/mediatek/image/filogic.mk
+          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
         fi
         grep -q "TARGET_DEVICES += sl3000" target/linux/mediatek/image/filogic.mk || \
           echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
 
-        echo "===== feeds 更新（警告非致命，确保成功返回）====="
+        echo "===== feeds 更新 ====="
         ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
         ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
 
-        echo "===== 强制目标与子目标（不强塞设备符号）====="
+        echo "===== 强制目标与子目标 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
 
@@ -139,21 +96,14 @@ EOF
         echo "===== 运行 defconfig ====="
         make defconfig
 
-        echo "===== defconfig 后断言（设备符号）====="
-        # 兼容两种命名形式
+        echo "===== defconfig 后断言 ====="
         if ! grep -Eq "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl3000=y|CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config; then
           echo "FATAL: sl3000 device missing AFTER defconfig"
-          echo "Hint: 如果仍失败，打印 .config 与 filogic.mk 以确认名称一致。"
           exit 1
         fi
 
-        echo "===== 打印关键配置快照 ====="
-        grep -E "CONFIG_TARGET_mediatek|CONFIG_TARGET_mediatek_filogic" .config || true
-        grep -E "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl3000|CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000" .config || true
-
     - name: Build firmware
       run: |
-        set -e
         cd /home/runner/immortalwrt
         export CCACHE_DIR=~/.ccache
         export CC="ccache gcc"
