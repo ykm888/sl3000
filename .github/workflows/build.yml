@@ -11,7 +11,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: immortalwrt-24.10   # 拉起你仓库的 24.10 分支
+        ref: immortalwrt-24.10
 
     - name: Free disk space
       run: |
@@ -29,22 +29,23 @@ jobs:
           libelf-dev libncursesw5-dev parted e2fsprogs
         pip3 install --upgrade pip setuptools wheel
 
-    - name: Prepare SL3000 (三件套对齐)
+    - name: Clone ImmortalWrt
+      run: |
+        rm -rf /home/runner/immortalwrt
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git \
+          -b openwrt-24.10 /home/runner/immortalwrt
+
+    - name: Copy SL3000 config/dts/mk
+      run: |
+        cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
+        cp -f "$GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts" \
+              /home/runner/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/ || true
+        cp -f "$GITHUB_WORKSPACE/image/filogic.mk" \
+              /home/runner/immortalwrt/target/linux/mediatek/image/ || true
+
+    - name: Prepare SL3000 (注册设备 + 双断言)
       run: |
         set -e
-        cd $GITHUB_WORKSPACE
-
-        echo "===== DTS 放置到正确目录 ====="
-        cp -f target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
-              /home/runner/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/
-
-        echo "===== MK 放置到正确目录 ====="
-        cp -f target/linux/mediatek/image/filogic.mk \
-              /home/runner/immortalwrt/target/linux/mediatek/image/
-
-        echo "===== config 放置到根目录 ====="
-        cp -f .config /home/runner/immortalwrt/.config
-
         cd /home/runner/immortalwrt
 
         echo "===== DTS 注册兜底 ====="
@@ -52,17 +53,15 @@ jobs:
           echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile
 
         echo "===== MK 补齐兜底 ====="
-        grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk || {
-          cat >> target/linux/mediatek/image/filogic.mk <<'EOF'
-define Device/sl3000
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  IMAGE_SIZE := 268435456
-endef
-TARGET_DEVICES += sl3000
-EOF
-        }
+        if ! grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk; then
+          echo "define Device/sl3000" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_VENDOR := SL" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_MODEL := 3000" >> target/linux/mediatek/image/filogic.mk
+          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> target/linux/mediatek/image/filogic.mk
+          echo "  IMAGE_SIZE := 268435456" >> target/linux/mediatek/image/filogic.mk
+          echo "endef" >> target/linux/mediatek/image/filogic.mk
+          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
+        fi
 
         echo "===== feeds 更新 ====="
         ./scripts/feeds update -a
