@@ -1,33 +1,29 @@
-name: Fork ImmortalWrt to My Repo
+name: Sync ImmortalWrt 24.10
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # 手动触发
+  schedule:
+    - cron: '0 3 * * *'   # 每天凌晨 3 点自动触发
 
 jobs:
-  fork:
-    runs-on: ubuntu-22.04
+  sync:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout your repo
-      uses: actions/checkout@v4
+      - name: Checkout self repo
+        uses: actions/checkout@v4
 
-    - name: Set up Git identity
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Set up Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-    - name: Clone ImmortalWrt official repo
-      run: |
-        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 forked
+      - name: Add upstream ImmortalWrt
+        run: |
+          git remote add upstream https://github.com/immortalwrt/immortalwrt.git
+          git fetch upstream v24.10
 
-    - name: Push to your repo as new branch
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GH_REPO: ${{ github.repository }}
-      run: |
-        BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
-        cd forked
-        git checkout -b "$BRANCH"
-        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
-        # 强制推送，不需要 commit
-        git push origin "$BRANCH" --force
+      - name: Sync branch
+        run: |
+          git checkout -B immortalwrt-24.10 upstream/v24.10
+          git push origin immortalwrt-24.10 --force
