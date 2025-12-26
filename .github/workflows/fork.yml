@@ -29,7 +29,7 @@ jobs:
 
         git init
         git checkout -b "$BRANCH"
-        git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
         git add .
         git commit -m "Forked ImmortalWrt openwrt-24.10"
         git push origin "$BRANCH"
