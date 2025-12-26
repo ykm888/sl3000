@@ -1,0 +1,38 @@
+name: Fork and Build SL3000
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fork-and-build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout your repo
+      uses: actions/checkout@v4
+
+    - name: Set up Git identity
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Clone ImmortalWrt official repo
+      run: |
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 upstream
+
+    - name: Create build branch and copy source
+      run: |
+        BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p forked
+        cp -r upstream/* forked/
+        cd forked
+        git init
+        git remote add origin https://github.com/${{ github.repository }}.git
+        git checkout -b "$BRANCH"
+        git add .
+        git commit -m "Forked ImmortalWrt openwrt-24.10 for SL3000 build"
+        git push origin "$BRANCH"
+
+    - name: Output result
+      run: |
+        echo "✅ Forked ImmortalWrt and pushed to branch: build/sl3000-$(date +%Y%m%d-%H%M%S)"
