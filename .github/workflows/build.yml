@@ -50,7 +50,13 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Auto-check patches + config repair
+    - name: Force override filogic.mk (关键修复)
+      run: |
+        echo "===== 覆盖 filogic.mk，确保 sl3000 设备定义生效 ====="
+        cp sl3000/target/linux/mediatek/image/filogic.mk target/linux/mediatek/image/filogic.mk
+        echo "===== 覆盖完成 ====="
+
+    - name: Patch auto-check + config repair
       run: |
         set -e
 
@@ -116,6 +122,7 @@ jobs:
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
+          🔧 自动覆盖 filogic.mk（确保 sl3000 设备定义生效）
           🔧 patch 自动检测并禁用不兼容项
           🔧 .config 自动修复 target
           🔧 defconfig 后强校验目标设备
