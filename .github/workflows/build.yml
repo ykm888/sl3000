@@ -62,11 +62,6 @@ jobs:
         ROOT="/home/runner/immortalwrt"
         cd "$ROOT"
 
-        export MAKEFLAGS=
-        export PARALLEL_JOBS=1
-        export FORCEUNSAFECONFIGURE=1
-        export NOCONFIGURE=1
-
         echo "===== 验证并自动修复三件套 ====="
         # 自动修复 .config
         if ! test -f .config; then
@@ -94,15 +89,10 @@ jobs:
         ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
 
         echo "===== 强制写入目标配置 ====="
-        ./scripts/config \
-          -e CONFIG_TARGET_mediatek \
-          -e CONFIG_TARGET_mediatek_filogic \
-          -e CONFIG_TARGET_MULTI_PROFILE \
-          -e CONFIG_TARGET_ALL_PROFILES \
-          -e CONFIG_TARGET_DEVICES_sl3000
-
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || \
-          echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
+        grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
+        grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+        grep -q "CONFIG_TARGET_DEVICES_sl3000=y" .config || echo "CONFIG_TARGET_DEVICES_sl3000=y" >> .config
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
 
         # 补全内核选项
         {
