@@ -18,7 +18,7 @@ jobs:
 
     - name: Clone ImmortalWrt official repo
       run: |
-        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 upstream
+        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 forked
 
     - name: Push to your repo as new branch
       env:
@@ -26,10 +26,8 @@ jobs:
         GH_REPO: ${{ github.repository }}
       run: |
         BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
-        git clone upstream forked
         cd forked
         git checkout -b "$BRANCH"
         git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
-        git add .
-        git commit -m "Forked ImmortalWrt openwrt-24.10"
-        git push origin "$BRANCH"
+        # 强制推送，不需要 commit
+        git push origin "$BRANCH" --force
