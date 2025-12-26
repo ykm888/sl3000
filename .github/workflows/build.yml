@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout repository
+    - name: Checkout repository (你的仓库源)
       uses: actions/checkout@v4
       with:
         ref: immortalwrt-24.10
@@ -29,13 +29,13 @@ jobs:
           libelf-dev libncursesw5-dev parted e2fsprogs
         pip3 install --upgrade pip setuptools wheel
 
-    - name: Clone ImmortalWrt
+    - name: Clone ImmortalWrt (官方源码)
       run: |
         rm -rf /home/runner/immortalwrt
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git \
           -b openwrt-24.10 /home/runner/immortalwrt
 
-    - name: Copy SL3000 config/dts/mk
+    - name: Copy SL3000 config/dts/mk (三件套对齐)
       run: |
         cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
         cp -f "$GITHUB_WORKSPACE/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" \
@@ -73,7 +73,6 @@ jobs:
         done
 
         echo "===== DTS 自动注册 ====="
-        DTS_FILE="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
         DTS_MK="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
         grep -q "mt7981b-sl3000-emmc.dtb" "$DTS_MK" || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> "$DTS_MK"
 
@@ -94,7 +93,7 @@ jobs:
         ./scripts/feeds install -a || exit 1
         ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface || true
 
-        echo "===== 强制目标与设备 ====="
+        echo "===== config 自动修复 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
@@ -148,7 +147,9 @@ jobs:
           ✅ feeds 自动卸载坏包
           ✅ defconfig 前后双断言防止回落
           ✅ 编译失败自动重试
+          ✅ 缓存加速（dl + ccache）
           ✅ 自动生成 SHA256 校验文件
+          ✅ 自动发布 GitHub Release
         files: |
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
