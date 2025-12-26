@@ -26,13 +26,10 @@ jobs:
         GH_REPO: ${{ github.repository }}
       run: |
         BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
-        mkdir forked
-        cp -a upstream/. forked/
+        git clone upstream forked
         cd forked
-
-        git init
         git checkout -b "$BRANCH"
-        git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
         git add .
         git commit -m "Forked ImmortalWrt openwrt-24.10"
         git push origin "$BRANCH"
