@@ -10,6 +10,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        ref: immortalwrt-24.10   # 拉起你仓库的 24.10 分支
 
     - name: Free disk space
       run: |
@@ -27,81 +29,55 @@ jobs:
           libelf-dev libncursesw5-dev parted e2fsprogs
         pip3 install --upgrade pip setuptools wheel
 
-    - name: Clone ImmortalWrt
-      run: |
-        rm -rf /home/runner/immortalwrt
-        git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git \
-          -b openwrt-24.10 /home/runner/immortalwrt
-
-    - name: Copy SL3000 config/dts/mk
-      run: |
-        cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
-        cp -f "$GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts" \
-              /home/runner/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/ || true
-        cp -f "$GITHUB_WORKSPACE/image/filogic.mk" \
-              /home/runner/immortalwrt/target/linux/mediatek/image/ || true
-
-    - name: Cache dl
-      uses: actions/cache@v4
-      with:
-        path: /home/runner/immortalwrt/dl
-        key: "dl-${{ runner.os }}"
-        restore-keys: |
-          dl-
-
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.ccache
-        key: "ccache-${{ runner.os }}-${{ github.run_id }}"
-        restore-keys: |
-          ccache-${{ runner.os }}-
-
-    - name: Prepare SL3000 (注册设备 + 双断言)
+    - name: Prepare SL3000 (三件套对齐)
       run: |
         set -e
+        cd $GITHUB_WORKSPACE
+
+        echo "===== DTS 放置到正确目录 ====="
+        cp -f target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+              /home/runner/immortalwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/
+
+        echo "===== MK 放置到正确目录 ====="
+        cp -f target/linux/mediatek/image/filogic.mk \
+              /home/runner/immortalwrt/target/linux/mediatek/image/
+
+        echo "===== config 放置到根目录 ====="
+        cp -f .config /home/runner/immortalwrt/.config
+
         cd /home/runner/immortalwrt
 
         echo "===== DTS 注册兜底 ====="
-        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || \
-          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
+        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile || \
+          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile
 
         echo "===== MK 补齐兜底 ====="
-        if ! grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk; then
-          echo "define Device/sl3000" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_VENDOR := SL" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_MODEL := 3000" >> target/linux/mediatek/image/filogic.mk
-          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> target/linux/mediatek/image/filogic.mk
-          echo "  SUPPORTED_DEVICES := sl3000" >> target/linux/mediatek/image/filogic.mk
-          echo "  IMAGE_SIZE := 268435456" >> target/linux/mediatek/image/filogic.mk
-          echo "endef" >> target/linux/mediatek/image/filogic.mk
-          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
-        fi
-        grep -q "TARGET_DEVICES += sl3000" target/linux/mediatek/image/filogic.mk || \
-          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
+        grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk || {
+          cat >> target/linux/mediatek/image/filogic.mk <<'EOF'
+define Device/sl3000
+  DEVICE_VENDOR := SL
+  DEVICE_MODEL := 3000
+  DEVICE_DTS := mt7981b-sl3000-emmc
+  IMAGE_SIZE := 268435456
+endef
+TARGET_DEVICES += sl3000
+EOF
+        }
 
         echo "===== feeds 更新 ====="
-        ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
-        ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-        echo "===== 强制目标与子目标 ====="
+        echo "===== 强制目标与设备 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
         grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-
-        echo "===== defconfig 前断言 ====="
-        grep -Eq "CONFIG_TARGET_mediatek=y" .config || { echo "FATAL: mediatek target missing BEFORE defconfig"; exit 1; }
-        grep -Eq "CONFIG_TARGET_mediatek_filogic=y" .config || { echo "FATAL: filogic subtarget missing BEFORE defconfig"; exit 1; }
-        grep -q "define Device/sl3000" target/linux/mediatek/image/filogic.mk || { echo "FATAL: Device/sl3000 block missing BEFORE defconfig"; exit 1; }
-        grep -q "TARGET_DEVICES += sl3000" target/linux/mediatek/image/filogic.mk || { echo "FATAL: TARGET_DEVICES sl3000 missing BEFORE defconfig"; exit 1; }
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
 
         echo "===== 运行 defconfig ====="
         make defconfig
 
         echo "===== defconfig 后断言 ====="
-        if ! grep -Eq "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl3000=y|CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config; then
-          echo "FATAL: sl3000 device missing AFTER defconfig"
-          exit 1
-        fi
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || { echo "FATAL: sl3000 missing AFTER defconfig"; exit 1; }
 
     - name: Build firmware
       run: |
@@ -110,11 +86,7 @@ jobs:
         export CC="ccache gcc"
         export CXX="ccache g++"
 
-        make defconfig
         make -j$(nproc) V=s || make -j1 V=s
-
-        df -h
-        ccache -s || true
 
     - name: Generate SHA256 checksums
       run: |
@@ -127,21 +99,5 @@ jobs:
       with:
         name: firmware
         path: |
-          /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
-          /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
-
-    - name: Release firmware
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: "sl3000-${{ github.run_number }}"
-        name: "SL3000 Firmware Build #${{ github.run_number }}"
-        body: |
-          自动构建固件（SL3000 / ImmortalWrt 24.10）
-          - 自动验证并修复三件套（.config/DTS/MK）
-          - DTS 自动注册 + 兜底补齐 Device/sl3000
-          - 只强制 target/subtarget，设备符号由 MK 正确生成
-          - defconfig 前后双断言防止回落
-          - 自动生成 SHA256 校验文件
-        files: |
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/*
           /home/runner/immortalwrt/bin/targets/mediatek/filogic/SHA256SUMS
