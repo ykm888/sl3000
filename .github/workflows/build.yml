@@ -50,12 +50,12 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Patch auto-check (安全模式)
+    - name: Auto-check patches + config repair
       run: |
         set -e
-        PATCH_DIR="target/linux/mediatek/patches-6.6"
 
-        echo "===== 自动检测 patch 是否兼容 ====="
+        echo "===== Patch 自动检测 ====="
+        PATCH_DIR="target/linux/mediatek/patches-6.6"
         if [ -d "$PATCH_DIR" ]; then
           for p in "$PATCH_DIR"/*.patch; do
             [ -e "$p" ] || continue
@@ -66,21 +66,17 @@ jobs:
           done
         fi
 
-    - name: Feeds update & cleanup
-      run: |
+        echo "===== config 自动修复（仅修复 target）====="
+        grep -q "CONFIG_TARGET_MEDIATEK=y" .config || echo "CONFIG_TARGET_MEDIATEK=y" >> .config
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC=y" >> .config
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
+
         echo "===== feeds 更新 ====="
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-        echo "===== 自动卸载坏包 ====="
-        ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface python-gevent python-twisted || true
-
-    - name: Defconfig & target assert
-      run: |
-        echo "===== defconfig ====="
+        echo "===== defconfig + 断言 ====="
         make defconfig
-
-        echo "===== 校验 SL3000 目标 ====="
         grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
           echo "FATAL: sl3000 missing AFTER defconfig"
           exit 1
@@ -120,14 +116,13 @@ jobs:
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
-          ✅ DTS / MK / .config 已手工对齐，无需 CI 自动修复
-          ✅ patch 自动检测并禁用不兼容项
-          ✅ feeds 自动卸载坏包
-          ✅ defconfig 后强校验目标设备
-          ✅ 编译失败自动重试
-          ✅ 缓存加速（dl + ccache）
-          ✅ 自动生成 SHA256 校验文件
-          ✅ 自动发布 GitHub Release
+          🔧 patch 自动检测并禁用不兼容项
+          🔧 .config 自动修复 target
+          🔧 defconfig 后强校验目标设备
+          🔧 编译失败自动重试
+          🔧 缓存加速（dl + ccache）
+          🔧 自动生成 SHA256 校验文件
+          🔧 自动发布 GitHub Release
         files: |
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
