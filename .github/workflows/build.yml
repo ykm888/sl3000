@@ -35,6 +35,12 @@ jobs:
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git \
           -b openwrt-24.10 /home/runner/immortalwrt
 
+    - name: Clean build cache
+      run: |
+        cd /home/runner/immortalwrt
+        make clean || true
+        rm -rf tmp/ staging_dir/ build_dir/
+
     - name: Copy SL3000 config/dts/mk (三件套对齐)
       run: |
         cp -f "$GITHUB_WORKSPACE/.config" /home/runner/immortalwrt/.config || true
@@ -91,7 +97,7 @@ jobs:
         echo "===== feeds 更新 + 自动卸载坏包 ====="
         ./scripts/feeds update -a || exit 1
         ./scripts/feeds install -a || exit 1
-        ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface || true
+        ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface python-gevent python-twisted || true
 
         echo "===== config 自动修复 ====="
         grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
