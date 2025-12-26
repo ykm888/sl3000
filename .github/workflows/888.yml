@@ -1,10 +1,10 @@
-name: Fork and Build SL3000
+name: Fork ImmortalWrt to My Repo
 
 on:
   workflow_dispatch:
 
 jobs:
-  fork-and-build:
+  fork:
     runs-on: ubuntu-22.04
 
     steps:
@@ -20,19 +20,19 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 upstream
 
-    - name: Create build branch and copy source
+    - name: Push to your repo as new branch
       run: |
         BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
-        mkdir -p forked
-        cp -r upstream/* forked/
+        mkdir forked
+        cp -a upstream/. forked/
         cd forked
+
         git init
-        git remote add origin https://github.com/${{ github.repository }}.git
         git checkout -b "$BRANCH"
+        git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
         git add .
-        git commit -m "Forked ImmortalWrt openwrt-24.10 for SL3000 build"
+        git commit -m "Forked ImmortalWrt openwrt-24.10"
         git push origin "$BRANCH"
 
-    - name: Output result
-      run: |
-        echo "✅ Forked ImmortalWrt and pushed to branch: build/sl3000-$(date +%Y%m%d-%H%M%S)"
+    - name: Done
+      run: echo "✅ Forked and pushed to branch: build/sl3000-$(date +%Y%m%d-%H%M%S)"
