@@ -18,30 +18,30 @@
         led-upgrade = &blue_wifi;
     };
 
-    /* ===== LED（真实 GPIO）===== */
+    /* ===== LED（修复 label 冲突）===== */
     leds {
         compatible = "gpio-leds";
 
-        red_power: red_power {
+        red_power: led_power {
             label = "sl3000:red:power";
             gpios = <&pio 10 GPIO_ACTIVE_LOW>;
             default-state = "on";
         };
 
-        green_status: green_status {
+        green_status: led_status {
             label = "sl3000:green:status";
             gpios = <&pio 11 GPIO_ACTIVE_LOW>;
             default-state = "off";
         };
 
-        blue_wifi: blue_wifi {
+        blue_wifi: led_wifi {
             label = "sl3000:blue:wifi";
             gpios = <&pio 12 GPIO_ACTIVE_LOW>;
             default-state = "off";
         };
     };
 
-    /* ===== 按键（真实 GPIO）===== */
+    /* ===== 按键 ===== */
     gpio-keys {
         compatible = "gpio-keys";
 
@@ -64,7 +64,7 @@
     status = "okay";
 };
 
-/* ===== EMMC（真实配置）===== */
+/* ===== EMMC ===== */
 &mmc0 {
     status = "okay";
     bus-width = <8>;
@@ -74,7 +74,7 @@
     max-frequency = <52000000>;
 };
 
-/* ===== 以太网 + 交换机（真实端口映射）===== */
+/* ===== 以太网 + 交换机 ===== */
 &eth {
     status = "okay";
 
@@ -137,7 +137,7 @@
     };
 };
 
-/* ===== WiFi（真实芯片）===== */
+/* ===== WiFi ===== */
 &wifi {
     status = "okay";
 };
