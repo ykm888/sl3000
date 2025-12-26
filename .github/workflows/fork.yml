@@ -21,6 +21,9 @@ jobs:
         git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10 upstream
 
     - name: Push to your repo as new branch
+      env:
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
       run: |
         BRANCH="build/sl3000-$(date +%Y%m%d-%H%M%S)"
         mkdir forked
@@ -29,7 +32,7 @@ jobs:
 
         git init
         git checkout -b "$BRANCH"
-        git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+        git remote add origin https://x-access-token:$TOKEN@github.com/$REPO.git
         git add .
         git commit -m "Forked ImmortalWrt openwrt-24.10"
         git push origin "$BRANCH"
