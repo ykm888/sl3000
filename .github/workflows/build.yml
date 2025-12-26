@@ -50,43 +50,101 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Force override filogic.mk (关键修复)
-      run: |
-        echo "===== 覆盖 filogic.mk，确保 sl3000 设备定义生效 ====="
-        cp sl3000/target/linux/mediatek/image/filogic.mk target/linux/mediatek/image/filogic.mk
-        echo "===== 覆盖完成 ====="
-
-    - name: Patch auto-check + config repair
+    # ============================================================
+    # 自动检测三件套 + 自动检测 DTS 内容 + 自动修复 config
+    # ============================================================
+    - name: Auto-check DTS + MK + CONFIG
       run: |
         set -e
 
-        echo "===== Patch 自动检测 ====="
-        PATCH_DIR="target/linux/mediatek/patches-6.6"
-        if [ -d "$PATCH_DIR" ]; then
-          for p in "$PATCH_DIR"/*.patch; do
-            [ -e "$p" ] || continue
-            patch -p1 --dry-run < "$p" || {
-              echo "Patch $p 不兼容，已禁用"
-              mv "$p" "$p.disabled"
-            }
-          done
+        echo "===== 检查 DTS 文件 ====="
+        DTS=target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981-sl3000-emmc.dts
+        if [ ! -f "$DTS" ]; then
+          echo "FATAL: DTS 文件不存在: $DTS"
+          exit 1
+        fi
+        echo "DTS 文件存在 OK"
+
+        echo "===== 检查 DTS: mt7981b-soc ====="
+        if ! grep -q "mt7981b" "$DTS"; then
+          echo "WARNING: DTS 未包含 mt7981b-soc"
+        else
+          echo "DTS compatible OK"
         fi
 
-        echo "===== config 自动修复（仅修复 target）====="
-        grep -q "CONFIG_TARGET_MEDIATEK=y" .config || echo "CONFIG_TARGET_MEDIATEK=y" >> .config
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC=y" >> .config
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
+        echo "===== 检查 DTS: memory 1GB ====="
+        if ! grep -q "memory" "$DTS"; then
+          echo "WARNING: DTS 未定义 memory 节点"
+        fi
 
-        echo "===== feeds 更新 ====="
+        echo "===== 检查 DTS: eMMC 节点 ====="
+        if ! grep -q "mmc" "$DTS"; then
+          echo "WARNING: DTS 未定义 eMMC 节点"
+        fi
+
+        echo "===== 检查 DTS: SPI-NOR ====="
+        if ! grep -q "spi" "$DTS"; then
+          echo "WARNING: DTS 未定义 SPI-NOR 节点"
+        fi
+
+        echo "===== 检查 DTS: ethernet ====="
+        if ! grep -q "ethernet" "$DTS"; then
+          echo "WARNING: DTS 未定义 ethernet 节点"
+        fi
+
+        echo "===== 检查 DTS: switch ====="
+        if ! grep -q "switch" "$DTS"; then
+          echo "WARNING: DTS 未定义 switch 节点"
+        fi
+
+        echo "===== 检查 DTS: gpio-leds ====="
+        if ! grep -q "gpio-leds" "$DTS"; then
+          echo "WARNING: DTS 未定义 gpio-leds"
+        fi
+
+        echo "===== 检查 DTS: gpio-keys ====="
+        if ! grep -q "gpio-keys" "$DTS"; then
+          echo "WARNING: DTS 未定义 gpio-keys"
+        fi
+
+        echo "===== 检查 filogic.mk ====="
+        MK=target/linux/mediatek/image/filogic.mk
+
+        if grep -q "define Device/" "$MK" | grep -v sl3000; then
+          echo "FATAL: filogic.mk 中存在非 sl3000 设备定义"
+          exit 1
+        fi
+
+        if ! grep -q "Device/sl3000" "$MK"; then
+          echo "FATAL: filogic.mk 未定义 sl3000"
+          exit 1
+        fi
+
+        if ! grep -q "TARGET_DEVICES += sl3000" "$MK"; then
+          echo "FATAL: filogic.mk 未添加 sl3000 到 TARGET_DEVICES"
+          exit 1
+        fi
+
+        echo "===== 自动修复 config ====="
+        echo "CONFIG_TARGET_mediatek=y" > .config
+        echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+        echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
+        echo "config OK"
+
+    - name: Feeds + defconfig + 强校验
+      run: |
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-        echo "===== defconfig + 断言 ====="
+        echo "===== defconfig ====="
         make defconfig
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
+
+        echo "===== 校验 sl3000 是否存在 ====="
+        if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config; then
           echo "FATAL: sl3000 missing AFTER defconfig"
           exit 1
-        }
+        fi
+        echo "sl3000 config OK"
 
     - name: Build firmware
       run: |
@@ -122,14 +180,13 @@ jobs:
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
-          🔧 自动覆盖 filogic.mk（确保 sl3000 设备定义生效）
-          🔧 patch 自动检测并禁用不兼容项
-          🔧 .config 自动修复 target
-          🔧 defconfig 后强校验目标设备
-          🔧 编译失败自动重试
-          🔧 缓存加速（dl + ccache）
-          🔧 自动生成 SHA256 校验文件
-          🔧 自动发布 GitHub Release
+          ✔ 三件套自动检测（config / mk / DTS）
+          ✔ DTS 自动检查（mt7981b-soc / memory / mmc / spi / eth / switch / leds / keys）
+          ✔ config 自动修复
+          ✔ defconfig 强校验
+          ✔ 编译失败自动重试
+          ✔ 自动生成 SHA256
+          ✔ 自动发布 Release
         files: |
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
