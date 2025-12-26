@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout repository (你的仓库源码)
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: immortalwrt-24.10
@@ -50,50 +50,40 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Patch auto-check + SL3000 prepare
+    - name: Patch auto-check (安全模式)
       run: |
         set -e
+        PATCH_DIR="target/linux/mediatek/patches-6.6"
 
         echo "===== 自动检测 patch 是否兼容 ====="
-        for p in target/linux/mediatek/patches-6.6/*.patch; do
-          patch -p1 --dry-run < "$p" || {
-            echo "Patch $p 不兼容，已禁用"
-            mv "$p" "$p.disabled"
-          }
-        done
+        if [ -d "$PATCH_DIR" ]; then
+          for p in "$PATCH_DIR"/*.patch; do
+            [ -e "$p" ] || continue
+            patch -p1 --dry-run < "$p" || {
+              echo "Patch $p 不兼容，已禁用"
+              mv "$p" "$p.disabled"
+            }
+          done
+        fi
 
-        echo "===== DTS 自动注册 ====="
-        DTS_MK="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/Makefile"
-        grep -q "mt7981b-sl3000-emmc.dtb" "$DTS_MK" || echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> "$DTS_MK"
+    - name: Feeds update & cleanup
+      run: |
+        echo "===== feeds 更新 ====="
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-        echo "===== MK 自动补齐 ====="
-        MK_FILE="target/linux/mediatek/image/filogic.mk"
-        grep -q "define Device/sl3000" "$MK_FILE" || {
-          echo "define Device/sl3000" >> "$MK_FILE"
-          echo "  DEVICE_VENDOR := SL" >> "$MK_FILE"
-          echo "  DEVICE_MODEL := 3000" >> "$MK_FILE"
-          echo "  DEVICE_DTS := mt7981b-sl3000-emmc" >> "$MK_FILE"
-          echo "  IMAGE_SIZE := 268435456" >> "$MK_FILE"
-          echo "endef" >> "$MK_FILE"
-          echo "TARGET_DEVICES += sl3000" >> "$MK_FILE"
-        }
-
-        echo "===== feeds 更新 + 自动卸载坏包 ====="
-        ./scripts/feeds update -a || exit 1
-        ./scripts/feeds install -a || exit 1
+        echo "===== 自动卸载坏包 ====="
         ./scripts/feeds uninstall exim onionshare-cli python-zope-event python-zope-interface python-gevent python-twisted || true
 
-        echo "===== config 自动修复 ====="
-        grep -q "CONFIG_TARGET_mediatek=y" .config || echo "CONFIG_TARGET_mediatek=y" >> .config
-        grep -q "CONFIG_TARGET_mediatek_filogic=y" .config || echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
-
-        echo "===== defconfig 前后双断言 ====="
+    - name: Defconfig & target assert
+      run: |
+        echo "===== defconfig ====="
         make defconfig
-        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config || {
-          echo "FATAL: sl3000 missing AFTER defconfig，已兜底修复"
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
-          make defconfig
+
+        echo "===== 校验 SL3000 目标 ====="
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
+          echo "FATAL: sl3000 missing AFTER defconfig"
+          exit 1
         }
 
     - name: Build firmware
@@ -103,7 +93,7 @@ jobs:
         export CXX="ccache g++"
         ccache -C || true
 
-        echo "===== 编译固件，失败自动重试 ====="
+        echo "===== 编译固件（失败自动重试）====="
         make -j$(nproc) V=s || make -j1 V=s
 
         df -h
@@ -130,11 +120,10 @@ jobs:
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
-          ✅ 自动验证并修复三件套（.config/DTS/MK）
-          ✅ DTS 自动注册 + MK 自动补齐
+          ✅ DTS / MK / .config 已手工对齐，无需 CI 自动修复
           ✅ patch 自动检测并禁用不兼容项
           ✅ feeds 自动卸载坏包
-          ✅ defconfig 前后双断言防止回落
+          ✅ defconfig 后强校验目标设备
           ✅ 编译失败自动重试
           ✅ 缓存加速（dl + ccache）
           ✅ 自动生成 SHA256 校验文件
