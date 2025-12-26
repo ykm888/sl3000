@@ -1,32 +1,40 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 /dts-v1/;
 
-#include "mt7981b.dtsi"
+#include "mt7981.dtsi"
 
 / {
     model = "SL-3000 (EMMC)";
-    compatible = "sl,3000-emmc", "mediatek,mt7981b";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
     chosen {
         bootargs = "console=ttyS0,115200n8";
+    };
+
+    aliases {
+        led-boot = &green_status;
+        led-failsafe = &red_power;
+        led-running = &green_status;
+        led-upgrade = &blue_wifi;
     };
 
     /* ===== LED（真实 GPIO）===== */
     leds {
         compatible = "gpio-leds";
 
-        red_power {
+        red_power: red_power {
             label = "sl3000:red:power";
             gpios = <&pio 10 GPIO_ACTIVE_LOW>;
             default-state = "on";
         };
 
-        green_status {
+        green_status: green_status {
             label = "sl3000:green:status";
             gpios = <&pio 11 GPIO_ACTIVE_LOW>;
             default-state = "off";
         };
 
-        blue_wifi {
+        blue_wifi: blue_wifi {
             label = "sl3000:blue:wifi";
             gpios = <&pio 12 GPIO_ACTIVE_LOW>;
             default-state = "off";
