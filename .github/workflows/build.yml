@@ -34,11 +34,11 @@ jobs:
 
     - name: Copy SL3000 三件套
       run: |
-        cp $GITHUB_WORKSPACE/.config /home/runner/immortalwrt/.config
+        cp $GITHUB_WORKSPACE/.config /home/runner/immortalwrt/.config || true
         cp $GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts \
-           /home/runner/immortalwrt/target/linux/mediatek/dts/
+           /home/runner/immortalwrt/target/linux/mediatek/dts/ || true
         cp $GITHUB_WORKSPACE/image/filogic.mk \
-           /home/runner/immortalwrt/target/linux/mediatek/image/
+           /home/runner/immortalwrt/target/linux/mediatek/image/ || true
 
     - name: Cache dl
       uses: actions/cache@v4
@@ -56,7 +56,7 @@ jobs:
         restore-keys: |
           ccache-${{ runner.os }}-
 
-    - name: Prepare SL3000 (全链路修复+断言验证)
+    - name: Prepare SL3000 (自动验证+自动修复)
       run: |
         set -e
         ROOT="/home/runner/immortalwrt"
@@ -67,17 +67,25 @@ jobs:
         export FORCEUNSAFECONFIGURE=1
         export NOCONFIGURE=1
 
-        echo "===== 验证 .config 是否存在 ====="
-        test -f .config || { echo "FATAL: .config not found"; exit 1; }
-        grep CONFIG_TARGET .config || { echo "FATAL: .config missing target"; exit 1; }
+        echo "===== 验证并自动修复三件套 ====="
+        # 自动修复 .config
+        if ! test -f .config; then
+          cp $GITHUB_WORKSPACE/.config .config || { echo "FATAL: .config missing"; exit 1; }
+        fi
         grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
           echo "FATAL: SL3000 config not applied BEFORE defconfig"
           exit 1
         }
 
-        echo "===== 验证 DTS 和 MK 是否存在 ====="
-        ls -l target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || { echo "FATAL: DTS missing"; exit 1; }
-        ls -l target/linux/mediatek/image/filogic.mk || { echo "FATAL: MK missing"; exit 1; }
+        # 自动修复 DTS
+        if ! test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts; then
+          cp $GITHUB_WORKSPACE/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/ || { echo "FATAL: DTS missing"; exit 1; }
+        fi
+
+        # 自动修复 MK
+        if ! test -f target/linux/mediatek/image/filogic.mk; then
+          cp $GITHUB_WORKSPACE/image/filogic.mk target/linux/mediatek/image/ || { echo "FATAL: MK missing"; exit 1; }
+        fi
 
         echo "===== feeds 更新 ====="
         ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
@@ -163,9 +171,9 @@ jobs:
         body: |
           自动构建固件（SL3000 / ImmortalWrt 24.10）
           - 构建编号：${{ github.run_number }}
-          - 全链路十三件套自动修复（CONFIG/DTS/MK/feeds/dl/tools/patch/overlay/kernel_oldconfig）
+          - 自动验证并修复三件套（.config/DTS/MK）
+          - 全链路十三件套自动修复（feeds/dl/tools/patch/overlay/kernel_oldconfig）
           - 显式补全 KEXEC/CRASH_DUMP 等缺失内核选项
-          - 禁用 autoreconf + 禁用 jobserver
           - 首启自动扩容 EMMC 根分区
           - 自动生成 SHA256 校验文件
         files: |
