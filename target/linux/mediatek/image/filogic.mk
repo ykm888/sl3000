@@ -574,45 +574,6 @@ define Device/cetron_ct3003-ubootmod
 endef
 TARGET_DEVICES += cetron_ct3003-ubootmod
 
-define Device/sl3000
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000
-  DEVICE_DTS := mt7981-sl3000-emmc
-  IMAGE_SIZE := 268435456
-
-  DEVICE_PACKAGES := \
-    kmod-mt7981-firmware \
-    kmod-mt76 \
-    kmod-mt76-core \
-    kmod-mt76-connac \
-    wpad-basic-mbedtls \
-    iwinfo \
-    kmod-leds-gpio \
-    kmod-gpio-button-hotplug \
-    kmod-mediatek_eth \
-    kmod-mediatek_hnat \
-    kmod-mt7531 \
-    block-mount \
-    kmod-fs-ext4 \
-    kmod-mmc \
-    kmod-mmc-mtk \
-    e2fsprogs \
-    kmod-nls-base \
-    dnsmasq-full \
-    ppp \
-    ppp-mod-pppoe \
-    uhttpd \
-    uhttpd-mod-ubus \
-    libustream-mbedtls \
-    rpcd \
-    rpcd-mod-rrdns \
-    luci \
-    luci-ssl \
-    luci-i18n-base-zh-cn
-endef
-
-TARGET_DEVICES += sl3000
-
 define Device/cmcc_a10-stock
   DEVICE_VENDOR := CMCC
   DEVICE_MODEL := A10
@@ -712,6 +673,33 @@ define Device/cmcc_rax3000m
   ARTIFACT/nand-bl31-uboot.fip := mt7981-bl31-uboot cmcc_rax3000m-nand
 endef
 TARGET_DEVICES += cmcc_rax3000m
+
+define Device/sl3000
+  DEVICE_VENDOR := SL
+  DEVICE_MODEL := 3000
+  DEVICE_DTS := mt7981-sl3000-emmc
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := \
+	kmod-mt76 \
+	kmod-mt76-core \
+	kmod-mt76-connac \
+	kmod-mt7981-firmware \
+	kmod-mediatek_eth \
+	kmod-mediatek_hnat \
+	kmod-mt7531 \
+	kmod-mmc \
+	kmod-mmc-mtk \
+	kmod-fs-ext4 \
+	block-mount
+  IMAGE_SIZE := 268435456
+  IMAGES := sysupgrade.bin
+  KERNEL := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += sl3000
 
 define Device/cmcc_rax3000me
   DEVICE_VENDOR := CMCC
