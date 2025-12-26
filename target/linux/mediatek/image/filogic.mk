@@ -577,7 +577,7 @@ TARGET_DEVICES += cetron_ct3003-ubootmod
 define Device/sl3000
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
-  DEVICE_DTS := mt7981b-sl3000-emmc
+  DEVICE_DTS := mt7981-sl3000-emmc
   IMAGE_SIZE := 268435456
 
   DEVICE_PACKAGES := \
