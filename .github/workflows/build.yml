@@ -72,10 +72,6 @@ jobs:
         if ! test -f .config; then
           cp $GITHUB_WORKSPACE/.config .config || { echo "FATAL: .config missing"; exit 1; }
         fi
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
-          echo "FATAL: SL3000 config not applied BEFORE defconfig"
-          exit 1
-        }
 
         # 自动修复 DTS
         if ! test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts; then
@@ -89,15 +85,26 @@ jobs:
         grep -q "TARGET_DEVICES += sl3000" target/linux/mediatek/image/filogic.mk || \
           echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
 
+        # 自动注册 DTS 到 Makefile
+        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || \
+          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
+
         echo "===== feeds 更新 ====="
         ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
         ./scripts/feeds install -a || { echo "FATAL: feeds install failed"; exit 1; }
 
-        echo "===== SL3000 自动修复开始 ====="
-        make defconfig
-        yes "" | make kernel_oldconfig
+        echo "===== 强制写入目标配置 ====="
+        ./scripts/config \
+          -e CONFIG_TARGET_mediatek \
+          -e CONFIG_TARGET_mediatek_filogic \
+          -e CONFIG_TARGET_MULTI_PROFILE \
+          -e CONFIG_TARGET_ALL_PROFILES \
+          -e CONFIG_TARGET_DEVICES_sl3000
 
-        # 显式补全缺失的内核选项
+        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || \
+          echo "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" >> .config
+
+        # 补全内核选项
         {
           echo "CONFIG_KEXEC=y"
           echo "CONFIG_KEXEC_FILE=n"
@@ -105,37 +112,17 @@ jobs:
           echo "CONFIG_CRASH_HOTPLUG=y"
         } >> .config
 
-        grep -q "CONFIG_TARGET_MEDIATEK_FILOGIC_DEVICE_sl3000=y" .config || {
-          echo "FATAL: SL3000 config not applied AFTER defconfig"
-          exit 1
-        }
+        echo "===== defconfig 前断言 ====="
+        grep -Eq "CONFIG_TARGET_mediatek=y" .config || { echo "FATAL: mediatek target missing BEFORE defconfig"; exit 1; }
+        grep -Eq "CONFIG_TARGET_mediatek_filogic=y" .config || { echo "FATAL: filogic subtarget missing BEFORE defconfig"; exit 1; }
+        grep -Eq "CONFIG_TARGET_(MEDIATEK_FILOGIC_DEVICE_sl3000|DEVICES_sl3000)=y" .config || { echo "FATAL: sl3000 device missing BEFORE defconfig"; exit 1; }
 
-        grep -q "mt7981b-sl3000-emmc.dtb" target/linux/mediatek/Makefile || \
-          echo "dtb-y += mt7981b-sl3000-emmc.dtb" >> target/linux/mediatek/Makefile
+        make defconfig
 
-        sed -i "/^CONFIG_PACKAGE_default-settings=y/d" .config
-        grep -q "^CONFIG_PACKAGE_luci=y" .config || echo "CONFIG_PACKAGE_luci=y" >> .config
-
-        ./scripts/feeds clean
-        ./scripts/feeds update -a || true
-        ./scripts/feeds install -a || true
-
-        find dl -size 0 -delete || true
-        find target -name "*.rej" -delete
-        find target -name "*.orig" -delete
-        rm -rf tmp/ builddir/ stagingdir/* || true
-
-        mkdir -p staging_dir/host/bin
-        echo -e '#!/bin/sh\nexit 0' > staging_dir/host/bin/autoreconf
-        chmod +x staging_dir/host/bin/autoreconf
-
-        env -i PATH="$PATH" HOME="$HOME" CCACHE_DIR="$HOME/.ccache" \
-          MAKEFLAGS= FORCEUNSAFECONFIGURE=1 NOCONFIGURE=1 \
-          make tools/compile -j1 V=s || exit 1
-
-        export CCACHE_DIR=~/.ccache
-        ccache -M 2G || true
-        ccache -z || true
+        echo "===== defconfig 后断言 ====="
+        grep -Eq "CONFIG_TARGET_mediatek=y" .config || { echo "FATAL: mediatek target missing AFTER defconfig"; exit 1; }
+        grep -Eq "CONFIG_TARGET_mediatek_filogic=y" .config || { echo "FATAL: filogic subtarget missing AFTER defconfig"; exit 1; }
+        grep -Eq "CONFIG_TARGET_(MEDIATEK_FILOGIC_DEVICE_sl3000|DEVICES_sl3000)=y" .config || { echo "FATAL: sl3000 device missing AFTER defconfig"; exit 1; }
 
         echo "===== SL3000 自动修复完成 ====="
 
@@ -147,7 +134,6 @@ jobs:
         export CXX="ccache g++"
 
         make defconfig
-        yes "" | make kernel_oldconfig
         make -j$(nproc) V=s || make -j1 V=s || exit 1
 
         df -h
@@ -174,8 +160,9 @@ jobs:
           自动构建固件（SL3000 / ImmortalWrt 24.10）
           - 构建编号：${{ github.run_number }}
           - 自动验证并修复三件套（.config/DTS/MK）
-          - 全链路十三件套自动修复（feeds/dl/tools/patch/overlay/kernel_oldconfig）
-          - 显式补全 KEXEC/CRASH_DUMP 等缺失内核选项
+          - 自动注册 DTS + 自动补全 MK
+          - 双重断言保证 SL3000 配置在 defconfig 前后都存在
+          - 补全 KEXEC/CRASH_DUMP 等缺失内核选项
           - 首启自动扩容 EMMC 根分区
           - 自动生成 SHA256 校验文件
         files: |
