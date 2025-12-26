@@ -86,6 +86,8 @@ jobs:
         if ! test -f target/linux/mediatek/image/filogic.mk; then
           cp $GITHUB_WORKSPACE/image/filogic.mk target/linux/mediatek/image/ || { echo "FATAL: MK missing"; exit 1; }
         fi
+        grep -q "TARGET_DEVICES += sl3000" target/linux/mediatek/image/filogic.mk || \
+          echo "TARGET_DEVICES += sl3000" >> target/linux/mediatek/image/filogic.mk
 
         echo "===== feeds 更新 ====="
         ./scripts/feeds update -a || { echo "FATAL: feeds update failed"; exit 1; }
