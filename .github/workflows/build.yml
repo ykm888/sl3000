@@ -1,4 +1,4 @@
-name: Build SL3000 (Ultimate Stable + Performance)
+name: Build SL3000 (Ultimate Stable + Performance + tar.gz cache)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
 
   ######################################################################
-  # Job 1: Build tools + toolchain
+  # Job 1: Build tools + toolchain（tar.gz 缓存）
   ######################################################################
   toolchain:
     runs-on: ubuntu-22.04
@@ -34,7 +34,7 @@ jobs:
           python3-pip python3-setuptools ccache perl pkg-config libelf-dev \
           libncursesw5-dev parted e2fsprogs m4 autoconf automake
 
-    - name: Allow root configure (toolchain)
+    - name: Allow root configure
       run: |
         echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
 
@@ -64,18 +64,19 @@ jobs:
         make tools/install -j1 V=s
         make toolchain/install -j1 V=s
 
-    - name: Upload toolchain cache
+    - name: Pack toolchain (tar.gz, preserve permissions)
+      run: |
+        tar -czf toolchain.tar.gz staging_dir build_dir tmp
+
+    - name: Upload toolchain tarball
       uses: actions/upload-artifact@v4
       with:
-        name: toolchain-cache
-        path: |
-          staging_dir/
-          build_dir/
-          tmp/
+        name: toolchain-tarball
+        path: toolchain.tar.gz
 
 
   ######################################################################
-  # Job 2: Build firmware（性能优化版 config）
+  # Job 2: Build firmware（解压 tar.gz 缓存）
   ######################################################################
   build:
     runs-on: ubuntu-22.04
@@ -104,14 +105,18 @@ jobs:
           python3-pip python3-setuptools ccache perl pkg-config libelf-dev \
           libncursesw5-dev parted e2fsprogs m4 autoconf automake
 
-    - name: Allow root configure (firmware)
+    - name: Allow root configure
       run: |
         echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
 
-    - name: Download toolchain cache
+    - name: Download toolchain tarball
       uses: actions/download-artifact@v4
       with:
-        name: toolchain-cache
+        name: toolchain-tarball
+
+    - name: Extract toolchain (preserve permissions)
+      run: |
+        tar -xzf toolchain.tar.gz
 
     - name: Inject Performance Config (NO EOF)
       run: |
@@ -119,134 +124,14 @@ jobs:
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-
-        echo "CONFIG_PACKAGE_base-files=y" >> .config
-        echo "CONFIG_PACKAGE_busybox=y" >> .config
-        echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
-        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-        echo "CONFIG_PACKAGE_dropbear=y" >> .config
-        echo "CONFIG_PACKAGE_firewall4=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-nft=y" >> .config
-        echo "CONFIG_PACKAGE_ip6tables-nft=y" >> .config
-        echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
-        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
-        echo "CONFIG_PACKAGE_ppp=y" >> .config
-        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
-        echo "CONFIG_PACKAGE_ubus=y" >> .config
-        echo "CONFIG_PACKAGE_ubusd=y" >> .config
-        echo "CONFIG_PACKAGE_uci=y" >> .config
-        echo "CONFIG_PACKAGE_logd=y" >> .config
-
         echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-base=y" >> .config
-        echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
-        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-opkg=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
         echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
-
-        echo "CONFIG_PACKAGE_uhttpd=y" >> .config
-        echo "CONFIG_PACKAGE_uhttpd-mod-ubus=y" >> .config
-        echo "CONFIG_PACKAGE_libustream-mbedtls=y" >> .config
-        echo "CONFIG_PACKAGE_rpcd=y" >> .config
-        echo "CONFIG_PACKAGE_rpcd-mod-rrdns=y" >> .config
-        echo "CONFIG_PACKAGE_libiwinfo=y" >> .config
-        echo "CONFIG_PACKAGE_libiwinfo-data=y" >> .config
-        echo "CONFIG_PACKAGE_libiwinfo-lua=y" >> .config
-        echo "CONFIG_PACKAGE_lua=y" >> .config
-
-        echo "CONFIG_PACKAGE_ip-full=y" >> .config
-        echo "CONFIG_PACKAGE_ipset=y" >> .config
-        echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
-        echo "CONFIG_PACKAGE_resolveip=y" >> .config
-
+        echo "CONFIG_PACKAGE_wpad-basic-mbedtls=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt7981-firmware=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> .config
         echo "CONFIG_PACKAGE_kmod-sched-cake=y" >> .config
-        echo "CONFIG_PACKAGE_tc=y" >> .config
         echo "CONFIG_TCP_CONG_BBR=y" >> .config
         echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> .config
-
-        echo "CONFIG_PACKAGE_kmod-mt76=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mt76-core=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mt76-connac=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mt7981-firmware=y" >> .config
-        echo "CONFIG_PACKAGE_wpad-basic-mbedtls=y" >> .config
-        echo "CONFIG_PACKAGE_iwinfo=y" >> .config
-        echo "CONFIG_CFG80211_INTERNAL_REGDB=y" >> .config
-        echo "CONFIG_PACKAGE_wireless-regdb=y" >> .config
-
-        echo "CONFIG_PACKAGE_block-mount=y" >> .config
-        echo "CONFIG_PACKAGE_blockd=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mmc=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mmc-mtk=y" >> .config
-        echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
-        echo "CONFIG_PACKAGE_mkf2fs=y" >> .config
-        echo "CONFIG_PACKAGE_f2fsck=y" >> .config
-        echo "CONFIG_PACKAGE_mount-utils=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-nls-base=y" >> .config
-
-        echo "CONFIG_PACKAGE_kmod-mediatek_eth=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-mt7531=y" >> .config
-        echo "CONFIG_PACKAGE_bridge=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-bridge=y" >> .config
-
-        echo "CONFIG_PACKAGE_kmod-leds-gpio=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y" >> .config
-
-        echo "CONFIG_PACKAGE_coreutils=y" >> .config
-        echo "CONFIG_PACKAGE_coreutils-base64=y" >> .config
-        echo "CONFIG_PACKAGE_htop=y" >> .config
-        echo "CONFIG_PACKAGE_curl=y" >> .config
-        echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_tar=y" >> .config
-        echo "CONFIG_PACKAGE_unzip=y" >> .config
-
-        echo "CONFIG_PACKAGE_strace=y" >> .config
-        echo "CONFIG_PACKAGE_tcpdump-mini=y" >> .config
-
-        echo "CONFIG_PACKAGE_audit=n" >> .config
-        echo "CONFIG_PACKAGE_policycoreutils=n" >> .config
-        echo "CONFIG_PACKAGE_pcat-manager=n" >> .config
-        echo "CONFIG_PACKAGE_kexec-tools=n" >> .config
-        echo "CONFIG_PACKAGE_default-settings=n" >> .config
-        echo "CONFIG_PACKAGE_wsdd2=n" >> .config
-        echo "CONFIG_PACKAGE_lm-sensors=n" >> .config
-        echo "CONFIG_PACKAGE_luci-app-samba4=n" >> .config
-
-        echo "CONFIG_BUSYBOX_DEFAULT_PAM=n" >> .config
-        echo "CONFIG_BUSYBOX_DEFAULT_RPC=n" >> .config
-
-        echo "CONFIG_MODULES=y" >> .config
-        echo "CONFIG_KALLSYMS=y" >> .config
-
-        echo "CONFIG_KEXEC=n" >> .config
-        echo "CONFIG_KEXEC_FILE=n" >> .config
-        echo "CONFIG_CRASHDUMP=n" >> .config
-        echo "CONFIG_CRASH_HOTPLUG=n" >> .config
-
-        echo "CONFIG_CPUFREQ=y" >> .config
-        echo "CONFIG_CPUFREQ_DEFAULT_GOV_SCHEDUTIL=y" >> .config
-        echo "CONFIG_SMP=y" >> .config
-        echo "CONFIG_SCHED_MC=y" >> .config
-        echo "CONFIG_SCHED_SMT=y" >> .config
-        echo "CONFIG_RPS=y" >> .config
-        echo "CONFIG_XPS=y" >> .config
-
-        echo "CONFIG_SQUASHFS=y" >> .config
-        echo "CONFIG_EXT4_FS=y" >> .config
-        echo "CONFIG_F2FS_FS=y" >> .config
-
-        echo "CONFIG_CFG80211=y" >> .config
-        echo "CONFIG_MAC80211=y" >> .config
-        echo "CONFIG_MT76=y" >> .config
-
-        echo "CONFIG_SLUB=y" >> .config
-        echo "CONFIG_SLUB_DEBUG=n" >> .config
-        echo "CONFIG_TRANSPARENT_HUGEPAGE=n" >> .config
-        echo "CONFIG_ZSWAP=n" >> .config
-        echo "CONFIG_ZRAM=n" >> .config
-
         echo "CONFIG_ALL_KMODS=n" >> .config
         echo "CONFIG_ALL_NONSHARED=n" >> .config
         echo "CONFIG_ALL=n" >> .config
@@ -271,38 +156,16 @@ jobs:
         cd bin/targets/mediatek/filogic/ || exit 0
         ls -lh
         ls *sysupgrade*.bin >/dev/null 2>&1 || (echo "FATAL: sysupgrade.bin 未生成" && exit 1)
-        strings *sysupgrade*.bin | grep -i sl3000 || echo "WARNING: 未找到 sl3000 字符串"
-        ubinize -l *sysupgrade*.bin || true
 
     - name: Generate SHA256 checksums
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
-        sha256sum * > SHA256SUMS || true
-        cat SHA256SUMS || true
+        sha256sum * > SHA256SUMS
 
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
         name: firmware
         path: |
-          bin/targets/mediatek/filogic/*
-          bin/targets/mediatek/filogic/SHA256SUMS
-
-    - name: Release firmware
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: "sl3000-${{ github.run_number }}"
-        name: "SL3000 Firmware Build #${{ github.run_number }}"
-        body: |
-          ✔ 性能优化版 config  
-          ✔ DTS/mk/config 自动自愈  
-          ✔ defconfig 强校验  
-          ✔ 拆分 toolchain + firmware 构建  
-          ✔ 强制 j1（避免 OOM）  
-          ✔ Runner 日志/缓存清理  
-          ✔ 固件结构自动验证  
-          ✔ 自动生成 SHA256  
-          ✔ 自动发布 Release  
-        files: |
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
