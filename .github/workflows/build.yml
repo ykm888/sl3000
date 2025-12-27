@@ -1,11 +1,83 @@
-name: Build SL3000 (Ultimate Stable)
+name: Build SL3000 (Ultimate Stable + Performance)
 
 on:
   workflow_dispatch:
 
 jobs:
+
+  ######################################################################
+  # Job 1: Build tools + toolchain（最重的部分，单独跑，最小 config）
+  ######################################################################
+  toolchain:
+    runs-on: ubuntu-22.04
+
+    container:
+      image: ubuntu:22.04
+
+    steps:
+    - name: Clean GitHub Runner cache
+      run: |
+        rm -rf /home/runner/actions-runner/cached/_diag/* || true
+        rm -rf /home/runner/actions-runner/_diag/* || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: immortalwrt-24.10
+
+    - name: Install dependencies
+      run: |
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          build-essential clang flex bison g++ gawk gcc-multilib gettext git \
+          libncurses5-dev libssl-dev rsync unzip zlib1g-dev file wget python3 \
+          python3-pip python3-setuptools ccache perl pkg-config libelf-dev \
+          libncursesw5-dev parted e2fsprogs
+
+    - name: Lock Python toolchain
+      run: |
+        pip3 install --upgrade pip==23.1 setuptools==65.5 wheel==0.38
+
+    - name: Free disk space
+      run: |
+        rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+        apt clean
+        df -h
+
+    - name: Clean build cache
+      run: |
+        rm -rf tmp/ staging_dir/ build_dir/ dl/
+
+    - name: Prepare minimal config for toolchain
+      run: |
+        echo "CONFIG_TARGET_mediatek=y" > .config
+        echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+        echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
+        echo "CONFIG_ALL_KMODS=n" >> .config
+        echo "CONFIG_ALL_NONSHARED=n" >> .config
+        echo "CONFIG_ALL=n" >> .config
+        make defconfig
+
+    - name: Build tools + toolchain
+      run: |
+        make tools/install -j1
+        make toolchain/install -j1
+
+    - name: Upload toolchain cache
+      uses: actions/upload-artifact@v4
+      with:
+        name: toolchain-cache
+        path: |
+          staging_dir/
+          build_dir/
+          tmp/
+
+  ######################################################################
+  # Job 2: Build firmware（性能优化版 config + 自愈 + 发布）
+  ######################################################################
   build:
     runs-on: ubuntu-22.04
+    needs: toolchain
 
     container:
       image: ubuntu:22.04
@@ -28,7 +100,7 @@ jobs:
         ref: immortalwrt-24.10
 
     # ============================================================
-    # 2. 安装依赖（不锁版本）
+    # 2. 安装依赖
     # ============================================================
     - name: Install dependencies
       run: |
@@ -40,40 +112,17 @@ jobs:
           libncursesw5-dev parted e2fsprogs
 
     # ============================================================
-    # 3. Python 工具链锁定
+    # 3. 下载 toolchain 缓存
     # ============================================================
-    - name: Lock Python toolchain
-      run: |
-        pip3 install --upgrade pip==23.1 setuptools==65.5 wheel==0.38
+    - name: Download toolchain cache
+      uses: actions/download-artifact@v4
+      with:
+        name: toolchain-cache
 
     # ============================================================
-    # 4. 清理磁盘
+    # 4. 构建前自愈：DTS + MK + 性能优化版 CONFIG 注入
     # ============================================================
-    - name: Free disk space
-      run: |
-        rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
-        apt clean
-        df -h
-
-    # ============================================================
-    # 5. 清理构建缓存
-    # ============================================================
-    - name: Clean build cache
-      run: |
-        make clean || true
-        rm -rf tmp/ staging_dir/ build_dir/
-
-    # ============================================================
-    # 6. 锁定 feeds（不更新）
-    # ============================================================
-    - name: Lock feeds (no update)
-      run: |
-        echo "Feeds locked. No update will be performed."
-
-    # ============================================================
-    # 7. 构建前自愈：DTS + MK + CONFIG
-    # ============================================================
-    - name: Pre-build Self-Heal (DTS + MK + CONFIG)
+    - name: Pre-build Self-Heal (DTS + MK + PERF CONFIG)
       run: |
         set -e
 
@@ -91,13 +140,150 @@ jobs:
           exit 1
         fi
 
-        echo "===== 自动修复 config ====="
-        echo "CONFIG_TARGET_mediatek=y" > .config
-        echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-        echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
+        echo "===== 注入 性能优化版 .config ====="
+        cat > .config << 'EOF'
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y
+
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_PACKAGE_ca-certificates=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_dropbear=y
+CONFIG_PACKAGE_firewall4=y
+CONFIG_PACKAGE_iptables-nft=y
+CONFIG_PACKAGE_ip6tables-nft=y
+CONFIG_PACKAGE_odhcp6c=y
+CONFIG_PACKAGE_odhcpd-ipv6only=y
+CONFIG_PACKAGE_ppp=y
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+CONFIG_PACKAGE_ubus=y
+CONFIG_PACKAGE_ubusd=y
+CONFIG_PACKAGE_uci=y
+CONFIG_PACKAGE_logd=y
+
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-mod-admin-full=y
+CONFIG_PACKAGE_luci-theme-bootstrap=y
+CONFIG_PACKAGE_luci-app-opkg=y
+CONFIG_PACKAGE_luci-ssl=y
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+
+CONFIG_PACKAGE_uhttpd=y
+CONFIG_PACKAGE_uhttpd-mod-ubus=y
+CONFIG_PACKAGE_libustream-mbedtls=y
+CONFIG_PACKAGE_rpcd=y
+CONFIG_PACKAGE_rpcd-mod-rrdns=y
+CONFIG_PACKAGE_libiwinfo=y
+CONFIG_PACKAGE_libiwinfo-data=y
+CONFIG_PACKAGE_libiwinfo-lua=y
+CONFIG_PACKAGE_lua=y
+
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_ipset=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+CONFIG_PACKAGE_resolveip=y
+
+CONFIG_PACKAGE_kmod-sched-cake=y
+CONFIG_PACKAGE_tc=y
+
+CONFIG_TCP_CONG_BBR=y
+CONFIG_DEFAULT_TCP_CONG="bbr"
+
+CONFIG_PACKAGE_kmod-mt76=y
+CONFIG_PACKAGE_kmod-mt76-core=y
+CONFIG_PACKAGE_kmod-mt76-connac=y
+CONFIG_PACKAGE_kmod-mt7981-firmware=y
+CONFIG_PACKAGE_wpad-basic-mbedtls=y
+CONFIG_PACKAGE_iwinfo=y
+CONFIG_CFG80211_INTERNAL_REGDB=y
+CONFIG_PACKAGE_wireless-regdb=y
+
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_blockd=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-mmc=y
+CONFIG_PACKAGE_kmod-mmc-mtk=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_mkf2fs=y
+CONFIG_PACKAGE_f2fsck=y
+CONFIG_PACKAGE_mount-utils=y
+CONFIG_PACKAGE_kmod-nls-base=y
+
+CONFIG_PACKAGE_kmod-mediatek_eth=y
+CONFIG_PACKAGE_kmod-mediatek_hnat=y
+CONFIG_PACKAGE_kmod-mt7531=y
+CONFIG_PACKAGE_bridge=y
+CONFIG_PACKAGE_kmod-bridge=y
+# CONFIG_PACKAGE_swconfig is not set
+
+CONFIG_PACKAGE_kmod-leds-gpio=y
+CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
+
+CONFIG_PACKAGE_coreutils=y
+CONFIG_PACKAGE_coreutils-base64=y
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_wget-ssl=y
+CONFIG_PACKAGE_tar=y
+CONFIG_PACKAGE_unzip=y
+
+CONFIG_PACKAGE_strace=y
+CONFIG_PACKAGE_tcpdump-mini=y
+
+CONFIG_PACKAGE_audit=n
+CONFIG_PACKAGE_policycoreutils=n
+CONFIG_PACKAGE_pcat-manager=n
+CONFIG_PACKAGE_kexec-tools=n
+CONFIG_PACKAGE_default-settings=n
+CONFIG_PACKAGE_wsdd2=n
+CONFIG_PACKAGE_lm-sensors=n
+CONFIG_PACKAGE_luci-app-samba4=n
+
+CONFIG_BUSYBOX_DEFAULT_PAM=n
+CONFIG_BUSYBOX_DEFAULT_RPC=n
+
+CONFIG_MODULES=y
+CONFIG_KALLSYMS=y
+
+CONFIG_KEXEC=n
+CONFIG_KEXEC_FILE=n
+CONFIG_CRASHDUMP=n
+CONFIG_CRASH_HOTPLUG=n
+
+CONFIG_CPUFREQ=y
+CONFIG_CPUFREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_SMP=y
+CONFIG_SCHED_MC=y
+CONFIG_SCHED_SMT=y
+CONFIG_RPS=y
+CONFIG_XPS=y
+
+CONFIG_SQUASHFS=y
+CONFIG_EXT4_FS=y
+CONFIG_F2FS_FS=y
+
+CONFIG_CFG80211=y
+CONFIG_MAC80211=y
+CONFIG_MT76=y
+
+CONFIG_SLUB=y
+CONFIG_SLUB_DEBUG=n
+CONFIG_TRANSPARENT_HUGEPAGE=n
+CONFIG_ZSWAP=n
+CONFIG_ZRAM=n
+
+CONFIG_ALL_KMODS=n
+CONFIG_ALL_NONSHARED=n
+CONFIG_ALL=n
+EOF
 
     # ============================================================
-    # 8. defconfig + 强校验
+    # 5. defconfig + 强校验
     # ============================================================
     - name: defconfig + validation
       run: |
@@ -108,14 +294,14 @@ jobs:
         fi
 
     # ============================================================
-    # 9. root configure 修复（tar/coreutils/m4/autoconf 必须）
+    # 6. root configure 修复
     # ============================================================
     - name: Allow root configure
       run: |
         echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
 
     # ============================================================
-    # 10. 编译固件（强制 j1，避免 OOM）
+    # 7. 编译固件（强制 j1，避免 OOM）
     # ============================================================
     - name: Build firmware (j1, OOM-safe)
       run: |
@@ -123,37 +309,30 @@ jobs:
         export CC="ccache gcc"
         export CXX="ccache g++"
         ccache -C || true
-
-        echo "===== 编译固件（强制 j1，避免 OOM）====="
-        make -j1 V=s
-
+        make -j1
         df -h
         ccache -s || true
 
     # ============================================================
-    # 11. 构建后验证（固件结构检查）
+    # 8. 构建后验证（固件结构检查）
     # ============================================================
     - name: Post-build validation
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
-
         echo "===== 检查固件文件 ====="
         ls -lh
-
         echo "===== 检查 sysupgrade.bin 是否存在 ====="
         if ! ls *sysupgrade*.bin >/dev/null 2>&1; then
           echo "FATAL: sysupgrade.bin 未生成"
           exit 1
         fi
-
-        echo "===== 检查 DTS 是否被打包 ====="
+        echo "===== 检查 DTS 字符串 ====="
         strings *sysupgrade*.bin | grep -i sl3000 || echo "WARNING: 未找到 sl3000 字符串（可能正常）"
-
         echo "===== 检查 UBI layout ====="
         ubinize -l *sysupgrade*.bin || true
 
     # ============================================================
-    # 12. 生成 SHA256
+    # 9. 生成 SHA256
     # ============================================================
     - name: Generate SHA256 checksums
       run: |
@@ -162,7 +341,7 @@ jobs:
         cat SHA256SUMS || true
 
     # ============================================================
-    # 13. 上传固件
+    # 10. 上传固件
     # ============================================================
     - name: Upload firmware
       uses: actions/upload-artifact@v4
@@ -173,7 +352,7 @@ jobs:
           bin/targets/mediatek/filogic/SHA256SUMS
 
     # ============================================================
-    # 14. 发布 Release
+    # 11. 发布 Release
     # ============================================================
     - name: Release firmware
       uses: softprops/action-gh-release@v2
@@ -181,12 +360,12 @@ jobs:
         tag_name: "sl3000-${{ github.run_number }}"
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
-          ✔ 完全自愈构建体系  
-          ✔ DTS/mk/config 自动修复  
+          ✔ 性能优化版 config  
+          ✔ DTS/mk/config 自动自愈  
           ✔ defconfig 强校验  
-          ✔ root configure 修复  
+          ✔ 拆分 toolchain + firmware 构建  
           ✔ 强制 j1（避免 OOM）  
-          ✔ Runner 缓存清理  
+          ✔ Runner 日志/缓存清理  
           ✔ 固件结构自动验证  
           ✔ 自动生成 SHA256  
           ✔ 自动发布 Release  
