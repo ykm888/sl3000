@@ -6,7 +6,7 @@ on:
 jobs:
 
   ######################################################################
-  # Job 1: Build tools + toolchain（最重的部分，单独跑，最小 config）
+  # Job 1: Build tools + toolchain
   ######################################################################
   toolchain:
     runs-on: ubuntu-22.04
@@ -40,7 +40,8 @@ jobs:
 
     - name: Free disk space
       run: |
-        rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+        rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache \
+               /usr/lib/jvm /usr/lib/google-cloud-sdk
         apt clean
         df -h
 
@@ -72,8 +73,9 @@ jobs:
           build_dir/
           tmp/
 
+
   ######################################################################
-  # Job 2: Build firmware（性能优化版 config + 自愈 + 发布）
+  # Job 2: Build firmware（性能优化版 config）
   ######################################################################
   build:
     runs-on: ubuntu-22.04
@@ -83,25 +85,16 @@ jobs:
       image: ubuntu:22.04
 
     steps:
-    # ============================================================
-    # 0. Runner 自愈（防止空间不足 / 日志爆炸）
-    # ============================================================
     - name: Clean GitHub Runner cache
       run: |
         rm -rf /home/runner/actions-runner/cached/_diag/* || true
         rm -rf /home/runner/actions-runner/_diag/* || true
 
-    # ============================================================
-    # 1. Checkout
-    # ============================================================
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: immortalwrt-24.10
 
-    # ============================================================
-    # 2. 安装依赖
-    # ============================================================
     - name: Install dependencies
       run: |
         apt-get update
@@ -111,198 +104,158 @@ jobs:
           python3-pip python3-setuptools ccache perl pkg-config libelf-dev \
           libncursesw5-dev parted e2fsprogs
 
-    # ============================================================
-    # 3. 下载 toolchain 缓存
-    # ============================================================
     - name: Download toolchain cache
       uses: actions/download-artifact@v4
       with:
         name: toolchain-cache
 
-    # ============================================================
-    # 4. 构建前自愈：DTS + MK + 性能优化版 CONFIG 注入
-    # ============================================================
-    - name: Pre-build Self-Heal (DTS + MK + PERF CONFIG)
+    - name: Inject Performance Config (NO EOF)
       run: |
-        set -e
+        echo "CONFIG_TARGET_mediatek=y" > .config
+        echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+        echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
 
-        echo "===== 检查 DTS 文件 ====="
-        DTS=target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981-sl3000-emmc.dts
-        if [ ! -f "$DTS" ]; then
-          echo "FATAL: DTS 文件不存在: $DTS"
-          exit 1
-        fi
+        echo "CONFIG_PACKAGE_base-files=y" >> .config
+        echo "CONFIG_PACKAGE_busybox=y" >> .config
+        echo "CONFIG_PACKAGE_ca-certificates=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+        echo "CONFIG_PACKAGE_dropbear=y" >> .config
+        echo "CONFIG_PACKAGE_firewall4=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-nft=y" >> .config
+        echo "CONFIG_PACKAGE_ip6tables-nft=y" >> .config
+        echo "CONFIG_PACKAGE_odhcp6c=y" >> .config
+        echo "CONFIG_PACKAGE_odhcpd-ipv6only=y" >> .config
+        echo "CONFIG_PACKAGE_ppp=y" >> .config
+        echo "CONFIG_PACKAGE_ppp-mod-pppoe=y" >> .config
+        echo "CONFIG_PACKAGE_ubus=y" >> .config
+        echo "CONFIG_PACKAGE_ubusd=y" >> .config
+        echo "CONFIG_PACKAGE_uci=y" >> .config
+        echo "CONFIG_PACKAGE_logd=y" >> .config
 
-        echo "===== 检查 filogic.mk ====="
-        MK=target/linux/mediatek/image/filogic.mk
-        if ! grep -q "Device/sl3000" "$MK"; then
-          echo "FATAL: filogic.mk 未定义 sl3000"
-          exit 1
-        fi
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-base=y" >> .config
+        echo "CONFIG_PACKAGE_luci-mod-admin-full=y" >> .config
+        echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-opkg=y" >> .config
+        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
+        echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
 
-        echo "===== 注入 性能优化版 .config ====="
-        cat > .config << 'EOF'
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y
+        echo "CONFIG_PACKAGE_uhttpd=y" >> .config
+        echo "CONFIG_PACKAGE_uhttpd-mod-ubus=y" >> .config
+        echo "CONFIG_PACKAGE_libustream-mbedtls=y" >> .config
+        echo "CONFIG_PACKAGE_rpcd=y" >> .config
+        echo "CONFIG_PACKAGE_rpcd-mod-rrdns=y" >> .config
+        echo "CONFIG_PACKAGE_libiwinfo=y" >> .config
+        echo "CONFIG_PACKAGE_libiwinfo-data=y" >> .config
+        echo "CONFIG_PACKAGE_libiwinfo-lua=y" >> .config
+        echo "CONFIG_PACKAGE_lua=y" >> .config
 
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
+        echo "CONFIG_PACKAGE_ip-full=y" >> .config
+        echo "CONFIG_PACKAGE_ipset=y" >> .config
+        echo "CONFIG_PACKAGE_iptables-mod-tproxy=y" >> .config
+        echo "CONFIG_PACKAGE_resolveip=y" >> .config
 
-CONFIG_PACKAGE_base-files=y
-CONFIG_PACKAGE_busybox=y
-CONFIG_PACKAGE_ca-certificates=y
-CONFIG_PACKAGE_dnsmasq-full=y
-CONFIG_PACKAGE_dropbear=y
-CONFIG_PACKAGE_firewall4=y
-CONFIG_PACKAGE_iptables-nft=y
-CONFIG_PACKAGE_ip6tables-nft=y
-CONFIG_PACKAGE_odhcp6c=y
-CONFIG_PACKAGE_odhcpd-ipv6only=y
-CONFIG_PACKAGE_ppp=y
-CONFIG_PACKAGE_ppp-mod-pppoe=y
-CONFIG_PACKAGE_ubus=y
-CONFIG_PACKAGE_ubusd=y
-CONFIG_PACKAGE_uci=y
-CONFIG_PACKAGE_logd=y
+        echo "CONFIG_PACKAGE_kmod-sched-cake=y" >> .config
+        echo "CONFIG_PACKAGE_tc=y" >> .config
+        echo "CONFIG_TCP_CONG_BBR=y" >> .config
+        echo "CONFIG_DEFAULT_TCP_CONG=\"bbr\"" >> .config
 
-CONFIG_PACKAGE_luci=y
-CONFIG_PACKAGE_luci-base=y
-CONFIG_PACKAGE_luci-mod-admin-full=y
-CONFIG_PACKAGE_luci-theme-bootstrap=y
-CONFIG_PACKAGE_luci-app-opkg=y
-CONFIG_PACKAGE_luci-ssl=y
-CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+        echo "CONFIG_PACKAGE_kmod-mt76=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt76-core=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt76-connac=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt7981-firmware=y" >> .config
+        echo "CONFIG_PACKAGE_wpad-basic-mbedtls=y" >> .config
+        echo "CONFIG_PACKAGE_iwinfo=y" >> .config
+        echo "CONFIG_CFG80211_INTERNAL_REGDB=y" >> .config
+        echo "CONFIG_PACKAGE_wireless-regdb=y" >> .config
 
-CONFIG_PACKAGE_uhttpd=y
-CONFIG_PACKAGE_uhttpd-mod-ubus=y
-CONFIG_PACKAGE_libustream-mbedtls=y
-CONFIG_PACKAGE_rpcd=y
-CONFIG_PACKAGE_rpcd-mod-rrdns=y
-CONFIG_PACKAGE_libiwinfo=y
-CONFIG_PACKAGE_libiwinfo-data=y
-CONFIG_PACKAGE_libiwinfo-lua=y
-CONFIG_PACKAGE_lua=y
+        echo "CONFIG_PACKAGE_block-mount=y" >> .config
+        echo "CONFIG_PACKAGE_blockd=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-fs-ext4=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mmc=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mmc-mtk=y" >> .config
+        echo "CONFIG_PACKAGE_e2fsprogs=y" >> .config
+        echo "CONFIG_PACKAGE_mkf2fs=y" >> .config
+        echo "CONFIG_PACKAGE_f2fsck=y" >> .config
+        echo "CONFIG_PACKAGE_mount-utils=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-nls-base=y" >> .config
 
-CONFIG_PACKAGE_ip-full=y
-CONFIG_PACKAGE_ipset=y
-CONFIG_PACKAGE_iptables-mod-tproxy=y
-CONFIG_PACKAGE_resolveip=y
+        echo "CONFIG_PACKAGE_kmod-mediatek_eth=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mediatek_hnat=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-mt7531=y" >> .config
+        echo "CONFIG_PACKAGE_bridge=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-bridge=y" >> .config
 
-CONFIG_PACKAGE_kmod-sched-cake=y
-CONFIG_PACKAGE_tc=y
+        echo "CONFIG_PACKAGE_kmod-leds-gpio=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-gpio-button-hotplug=y" >> .config
 
-CONFIG_TCP_CONG_BBR=y
-CONFIG_DEFAULT_TCP_CONG="bbr"
+        echo "CONFIG_PACKAGE_coreutils=y" >> .config
+        echo "CONFIG_PACKAGE_coreutils-base64=y" >> .config
+        echo "CONFIG_PACKAGE_htop=y" >> .config
+        echo "CONFIG_PACKAGE_curl=y" >> .config
+        echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
+        echo "CONFIG_PACKAGE_tar=y" >> .config
+        echo "CONFIG_PACKAGE_unzip=y" >> .config
 
-CONFIG_PACKAGE_kmod-mt76=y
-CONFIG_PACKAGE_kmod-mt76-core=y
-CONFIG_PACKAGE_kmod-mt76-connac=y
-CONFIG_PACKAGE_kmod-mt7981-firmware=y
-CONFIG_PACKAGE_wpad-basic-mbedtls=y
-CONFIG_PACKAGE_iwinfo=y
-CONFIG_CFG80211_INTERNAL_REGDB=y
-CONFIG_PACKAGE_wireless-regdb=y
+        echo "CONFIG_PACKAGE_strace=y" >> .config
+        echo "CONFIG_PACKAGE_tcpdump-mini=y" >> .config
 
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_blockd=y
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-mmc=y
-CONFIG_PACKAGE_kmod-mmc-mtk=y
-CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_PACKAGE_mkf2fs=y
-CONFIG_PACKAGE_f2fsck=y
-CONFIG_PACKAGE_mount-utils=y
-CONFIG_PACKAGE_kmod-nls-base=y
+        echo "CONFIG_PACKAGE_audit=n" >> .config
+        echo "CONFIG_PACKAGE_policycoreutils=n" >> .config
+        echo "CONFIG_PACKAGE_pcat-manager=n" >> .config
+        echo "CONFIG_PACKAGE_kexec-tools=n" >> .config
+        echo "CONFIG_PACKAGE_default-settings=n" >> .config
+        echo "CONFIG_PACKAGE_wsdd2=n" >> .config
+        echo "CONFIG_PACKAGE_lm-sensors=n" >> .config
+        echo "CONFIG_PACKAGE_luci-app-samba4=n" >> .config
 
-CONFIG_PACKAGE_kmod-mediatek_eth=y
-CONFIG_PACKAGE_kmod-mediatek_hnat=y
-CONFIG_PACKAGE_kmod-mt7531=y
-CONFIG_PACKAGE_bridge=y
-CONFIG_PACKAGE_kmod-bridge=y
-# CONFIG_PACKAGE_swconfig is not set
+        echo "CONFIG_BUSYBOX_DEFAULT_PAM=n" >> .config
+        echo "CONFIG_BUSYBOX_DEFAULT_RPC=n" >> .config
 
-CONFIG_PACKAGE_kmod-leds-gpio=y
-CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
+        echo "CONFIG_MODULES=y" >> .config
+        echo "CONFIG_KALLSYMS=y" >> .config
 
-CONFIG_PACKAGE_coreutils=y
-CONFIG_PACKAGE_coreutils-base64=y
-CONFIG_PACKAGE_htop=y
-CONFIG_PACKAGE_curl=y
-CONFIG_PACKAGE_wget-ssl=y
-CONFIG_PACKAGE_tar=y
-CONFIG_PACKAGE_unzip=y
+        echo "CONFIG_KEXEC=n" >> .config
+        echo "CONFIG_KEXEC_FILE=n" >> .config
+        echo "CONFIG_CRASHDUMP=n" >> .config
+        echo "CONFIG_CRASH_HOTPLUG=n" >> .config
 
-CONFIG_PACKAGE_strace=y
-CONFIG_PACKAGE_tcpdump-mini=y
+        echo "CONFIG_CPUFREQ=y" >> .config
+        echo "CONFIG_CPUFREQ_DEFAULT_GOV_SCHEDUTIL=y" >> .config
+        echo "CONFIG_SMP=y" >> .config
+        echo "CONFIG_SCHED_MC=y" >> .config
+        echo "CONFIG_SCHED_SMT=y" >> .config
+        echo "CONFIG_RPS=y" >> .config
+        echo "CONFIG_XPS=y" >> .config
 
-CONFIG_PACKAGE_audit=n
-CONFIG_PACKAGE_policycoreutils=n
-CONFIG_PACKAGE_pcat-manager=n
-CONFIG_PACKAGE_kexec-tools=n
-CONFIG_PACKAGE_default-settings=n
-CONFIG_PACKAGE_wsdd2=n
-CONFIG_PACKAGE_lm-sensors=n
-CONFIG_PACKAGE_luci-app-samba4=n
+        echo "CONFIG_SQUASHFS=y" >> .config
+        echo "CONFIG_EXT4_FS=y" >> .config
+        echo "CONFIG_F2FS_FS=y" >> .config
 
-CONFIG_BUSYBOX_DEFAULT_PAM=n
-CONFIG_BUSYBOX_DEFAULT_RPC=n
+        echo "CONFIG_CFG80211=y" >> .config
+        echo "CONFIG_MAC80211=y" >> .config
+        echo "CONFIG_MT76=y" >> .config
 
-CONFIG_MODULES=y
-CONFIG_KALLSYMS=y
+        echo "CONFIG_SLUB=y" >> .config
+        echo "CONFIG_SLUB_DEBUG=n" >> .config
+        echo "CONFIG_TRANSPARENT_HUGEPAGE=n" >> .config
+        echo "CONFIG_ZSWAP=n" >> .config
+        echo "CONFIG_ZRAM=n" >> .config
 
-CONFIG_KEXEC=n
-CONFIG_KEXEC_FILE=n
-CONFIG_CRASHDUMP=n
-CONFIG_CRASH_HOTPLUG=n
+        echo "CONFIG_ALL_KMODS=n" >> .config
+        echo "CONFIG_ALL_NONSHARED=n" >> .config
+        echo "CONFIG_ALL=n" >> .config
 
-CONFIG_CPUFREQ=y
-CONFIG_CPUFREQ_DEFAULT_GOV_SCHEDUTIL=y
-CONFIG_SMP=y
-CONFIG_SCHED_MC=y
-CONFIG_SCHED_SMT=y
-CONFIG_RPS=y
-CONFIG_XPS=y
-
-CONFIG_SQUASHFS=y
-CONFIG_EXT4_FS=y
-CONFIG_F2FS_FS=y
-
-CONFIG_CFG80211=y
-CONFIG_MAC80211=y
-CONFIG_MT76=y
-
-CONFIG_SLUB=y
-CONFIG_SLUB_DEBUG=n
-CONFIG_TRANSPARENT_HUGEPAGE=n
-CONFIG_ZSWAP=n
-CONFIG_ZRAM=n
-
-CONFIG_ALL_KMODS=n
-CONFIG_ALL_NONSHARED=n
-CONFIG_ALL=n
-EOF
-
-    # ============================================================
-    # 5. defconfig + 强校验
-    # ============================================================
     - name: defconfig + validation
       run: |
         make defconfig
-        if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config; then
-          echo "FATAL: sl3000 missing AFTER defconfig"
-          exit 1
-        fi
+        grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config
 
-    # ============================================================
-    # 6. root configure 修复
-    # ============================================================
     - name: Allow root configure
       run: |
         echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
 
-    # ============================================================
-    # 7. 编译固件（强制 j1，避免 OOM）
-    # ============================================================
     - name: Build firmware (j1, OOM-safe)
       run: |
         export CCACHE_DIR=~/.ccache
@@ -313,36 +266,20 @@ EOF
         df -h
         ccache -s || true
 
-    # ============================================================
-    # 8. 构建后验证（固件结构检查）
-    # ============================================================
     - name: Post-build validation
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
-        echo "===== 检查固件文件 ====="
         ls -lh
-        echo "===== 检查 sysupgrade.bin 是否存在 ====="
-        if ! ls *sysupgrade*.bin >/dev/null 2>&1; then
-          echo "FATAL: sysupgrade.bin 未生成"
-          exit 1
-        fi
-        echo "===== 检查 DTS 字符串 ====="
-        strings *sysupgrade*.bin | grep -i sl3000 || echo "WARNING: 未找到 sl3000 字符串（可能正常）"
-        echo "===== 检查 UBI layout ====="
+        ls *sysupgrade*.bin >/dev/null 2>&1 || (echo "FATAL: sysupgrade.bin 未生成" && exit 1)
+        strings *sysupgrade*.bin | grep -i sl3000 || echo "WARNING: 未找到 sl3000 字符串"
         ubinize -l *sysupgrade*.bin || true
 
-    # ============================================================
-    # 9. 生成 SHA256
-    # ============================================================
     - name: Generate SHA256 checksums
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
         sha256sum * > SHA256SUMS || true
         cat SHA256SUMS || true
 
-    # ============================================================
-    # 10. 上传固件
-    # ============================================================
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
@@ -351,9 +288,6 @@ EOF
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
 
-    # ============================================================
-    # 11. 发布 Release
-    # ============================================================
     - name: Release firmware
       uses: softprops/action-gh-release@v2
       with:
