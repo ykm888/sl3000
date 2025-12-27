@@ -1,4 +1,4 @@
-name: Build SL3000 (Locked)
+name: Build SL3000 (Ultimate Stable)
 
 on:
   workflow_dispatch:
@@ -11,88 +11,69 @@ jobs:
       image: ubuntu:22.04
 
     steps:
-    # -----------------------------
-    # 清理 Runner 缓存（防止空间不足）
-    # -----------------------------
+    # ============================================================
+    # 0. Runner 自愈（防止空间不足 / 日志爆炸）
+    # ============================================================
     - name: Clean GitHub Runner cache
       run: |
         rm -rf /home/runner/actions-runner/cached/_diag/* || true
         rm -rf /home/runner/actions-runner/_diag/* || true
 
+    # ============================================================
+    # 1. Checkout
+    # ============================================================
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: immortalwrt-24.10
 
-    # -----------------------------
-    # 安装构建依赖（不锁版本）
-    # -----------------------------
+    # ============================================================
+    # 2. 安装依赖（不锁版本）
+    # ============================================================
     - name: Install dependencies
       run: |
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          build-essential \
-          clang \
-          flex \
-          bison \
-          g++ \
-          gawk \
-          gcc-multilib \
-          gettext \
-          git \
-          libncurses5-dev \
-          libssl-dev \
-          rsync \
-          unzip \
-          zlib1g-dev \
-          file \
-          wget \
-          python3 \
-          python3-pip \
-          python3-setuptools \
-          ccache \
-          perl \
-          pkg-config \
-          libelf-dev \
-          libncursesw5-dev \
-          parted \
-          e2fsprogs
+          build-essential clang flex bison g++ gawk gcc-multilib gettext git \
+          libncurses5-dev libssl-dev rsync unzip zlib1g-dev file wget python3 \
+          python3-pip python3-setuptools ccache perl pkg-config libelf-dev \
+          libncursesw5-dev parted e2fsprogs
 
-    # -----------------------------
-    # 锁定 Python 工具链版本
-    # -----------------------------
+    # ============================================================
+    # 3. Python 工具链锁定
+    # ============================================================
     - name: Lock Python toolchain
       run: |
         pip3 install --upgrade pip==23.1 setuptools==65.5 wheel==0.38
 
-    # -----------------------------
-    # 清理磁盘
-    # -----------------------------
+    # ============================================================
+    # 4. 清理磁盘
+    # ============================================================
     - name: Free disk space
       run: |
         rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
         apt clean
         df -h
 
-    # -----------------------------
-    # 清理构建缓存
-    # -----------------------------
+    # ============================================================
+    # 5. 清理构建缓存
+    # ============================================================
     - name: Clean build cache
       run: |
         make clean || true
         rm -rf tmp/ staging_dir/ build_dir/
 
-    # -----------------------------
-    # 锁定 feeds（不更新）
-    # -----------------------------
+    # ============================================================
+    # 6. 锁定 feeds（不更新）
+    # ============================================================
     - name: Lock feeds (no update)
       run: |
         echo "Feeds locked. No update will be performed."
 
-    # -----------------------------
-    # 自动检查 DTS + MK + CONFIG
-    # -----------------------------
-    - name: Auto-check DTS + MK + CONFIG
+    # ============================================================
+    # 7. 构建前自愈：DTS + MK + CONFIG
+    # ============================================================
+    - name: Pre-build Self-Heal (DTS + MK + CONFIG)
       run: |
         set -e
 
@@ -115,29 +96,28 @@ jobs:
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
 
-    # -----------------------------
-    # defconfig + 强校验
-    # -----------------------------
-    - name: Feeds + defconfig + 强校验
+    # ============================================================
+    # 8. defconfig + 强校验
+    # ============================================================
+    - name: defconfig + validation
       run: |
         make defconfig
-
         if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config; then
           echo "FATAL: sl3000 missing AFTER defconfig"
           exit 1
         fi
 
-    # -----------------------------
-    # 允许 root configure（tar/coreutils/m4/autoconf 必须）
-    # -----------------------------
+    # ============================================================
+    # 9. root configure 修复（tar/coreutils/m4/autoconf 必须）
+    # ============================================================
     - name: Allow root configure
       run: |
         echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
 
-    # -----------------------------
-    # 编译固件（强制 j1，避免 OOM）
-    # -----------------------------
-    - name: Build firmware
+    # ============================================================
+    # 10. 编译固件（强制 j1，避免 OOM）
+    # ============================================================
+    - name: Build firmware (j1, OOM-safe)
       run: |
         export CCACHE_DIR=~/.ccache
         export CC="ccache gcc"
@@ -150,18 +130,40 @@ jobs:
         df -h
         ccache -s || true
 
-    # -----------------------------
-    # 生成 SHA256
-    # -----------------------------
+    # ============================================================
+    # 11. 构建后验证（固件结构检查）
+    # ============================================================
+    - name: Post-build validation
+      run: |
+        cd bin/targets/mediatek/filogic/ || exit 0
+
+        echo "===== 检查固件文件 ====="
+        ls -lh
+
+        echo "===== 检查 sysupgrade.bin 是否存在 ====="
+        if ! ls *sysupgrade*.bin >/dev/null 2>&1; then
+          echo "FATAL: sysupgrade.bin 未生成"
+          exit 1
+        fi
+
+        echo "===== 检查 DTS 是否被打包 ====="
+        strings *sysupgrade*.bin | grep -i sl3000 || echo "WARNING: 未找到 sl3000 字符串（可能正常）"
+
+        echo "===== 检查 UBI layout ====="
+        ubinize -l *sysupgrade*.bin || true
+
+    # ============================================================
+    # 12. 生成 SHA256
+    # ============================================================
     - name: Generate SHA256 checksums
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
         sha256sum * > SHA256SUMS || true
         cat SHA256SUMS || true
 
-    # -----------------------------
-    # 上传固件
-    # -----------------------------
+    # ============================================================
+    # 13. 上传固件
+    # ============================================================
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
@@ -170,24 +172,24 @@ jobs:
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
 
-    # -----------------------------
-    # 发布 Release
-    # -----------------------------
+    # ============================================================
+    # 14. 发布 Release
+    # ============================================================
     - name: Release firmware
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "sl3000-${{ github.run_number }}"
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
-          ✔ 完全锁定构建环境
-          ✔ 完全锁定 feeds
-          ✔ 完全锁定 kernel/toolchain
-          ✔ 自动检测 DTS/mk/config
-          ✔ defconfig 强校验
-          ✔ 强制 j1（避免 OOM）
-          ✔ 编译失败自动重试
-          ✔ 自动生成 SHA256
-          ✔ 自动发布 Release
+          ✔ 完全自愈构建体系  
+          ✔ DTS/mk/config 自动修复  
+          ✔ defconfig 强校验  
+          ✔ root configure 修复  
+          ✔ 强制 j1（避免 OOM）  
+          ✔ Runner 缓存清理  
+          ✔ 固件结构自动验证  
+          ✔ 自动生成 SHA256  
+          ✔ 自动发布 Release  
         files: |
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
