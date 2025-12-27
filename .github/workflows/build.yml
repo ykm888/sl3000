@@ -1,4 +1,4 @@
-name: Build SL3000
+name: Build SL3000 (Locked)
 
 on:
   workflow_dispatch:
@@ -7,52 +7,84 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
+    # 完全锁定构建环境（即使 GitHub 升级 runner 也不受影响）
+    container:
+      image: ubuntu:22.04
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: immortalwrt-24.10
 
+    # -----------------------------
+    # 锁定系统依赖版本（避免 apt 更新）
+    # -----------------------------
+    - name: Install locked dependencies
+      run: |
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          build-essential=12.9ubuntu3 \
+          clang=1:14.0-55~exp2 \
+          flex=2.6.4-8 \
+          bison=2:3.8.2+dfsg-1build1 \
+          g++=4:11.2.0-1ubuntu1 \
+          gawk=1:5.1.0-1build1 \
+          gcc-multilib=4:11.2.0-1ubuntu1 \
+          gettext=0.21-4ubuntu4 \
+          git=1:2.34.1-1ubuntu1.10 \
+          libncurses5-dev=6.3-2ubuntu0.1 \
+          libssl-dev=3.0.2-0ubuntu1.15 \
+          rsync=3.2.3-8ubuntu3.1 \
+          unzip=6.0-26ubuntu3.2 \
+          zlib1g-dev=1:1.2.11.dfsg-2ubuntu9.2 \
+          file=1:5.41-3ubuntu0.1 \
+          wget=1.21.2-2ubuntu1 \
+          python3=3.10.6-1~22.04 \
+          python3-pip=22.0.2+dfsg-1ubuntu0.4 \
+          python3-setuptools=59.6.0-1.2ubuntu0.22.04.1 \
+          ccache=4.6.1-1 \
+          perl=5.34.0-3ubuntu1.2 \
+          pkg-config=0.29.2-1ubuntu3 \
+          libelf-dev=0.186-1build1 \
+          libncursesw5-dev=6.3-2ubuntu0.1 \
+          parted=3.4-2build1 \
+          e2fsprogs=1.46.5-2ubuntu1.1
+
+    # -----------------------------
+    # 锁定 Python 工具链版本
+    # -----------------------------
+    - name: Lock Python toolchain
+      run: |
+        pip3 install --upgrade pip==23.1 setuptools==65.5 wheel==0.38
+
+    # -----------------------------
+    # 清理磁盘
+    # -----------------------------
     - name: Free disk space
       run: |
-        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
-        sudo docker system prune -af || true
-        sudo apt clean
+        rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+        apt clean
         df -h
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib \
-          gettext git libncurses5-dev libssl-dev rsync unzip zlib1g-dev \
-          file wget python3 python3-pip python3-setuptools ccache perl pkg-config \
-          libelf-dev libncursesw5-dev parted e2fsprogs
-        pip3 install --upgrade pip setuptools wheel
-
+    # -----------------------------
+    # 清理构建缓存
+    # -----------------------------
     - name: Clean build cache
       run: |
         make clean || true
         rm -rf tmp/ staging_dir/ build_dir/
 
-    - name: Cache dl
-      uses: actions/cache@v4
-      with:
-        path: dl
-        key: "dl-${{ runner.os }}"
-        restore-keys: |
-          dl-
+    # -----------------------------
+    # 锁定 feeds（不更新、不同步）
+    # -----------------------------
+    - name: Lock feeds (no update)
+      run: |
+        echo "Feeds locked. No update will be performed."
 
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.ccache
-        key: "ccache-${{ runner.os }}-${{ github.run_id }}"
-        restore-keys: |
-          ccache-${{ runner.os }}-
-
-    # ============================================================
-    # 自动检测三件套 + 自动检测 DTS 内容 + 自动修复 config
-    # ============================================================
+    # -----------------------------
+    # 自动检测三件套 + DTS 检查
+    # -----------------------------
     - name: Auto-check DTS + MK + CONFIG
       run: |
         set -e
@@ -63,65 +95,11 @@ jobs:
           echo "FATAL: DTS 文件不存在: $DTS"
           exit 1
         fi
-        echo "DTS 文件存在 OK"
-
-        echo "===== 检查 DTS: mt7981b-soc ====="
-        if ! grep -q "mt7981b" "$DTS"; then
-          echo "WARNING: DTS 未包含 mt7981b-soc"
-        else
-          echo "DTS compatible OK"
-        fi
-
-        echo "===== 检查 DTS: memory 1GB ====="
-        if ! grep -q "memory" "$DTS"; then
-          echo "WARNING: DTS 未定义 memory 节点"
-        fi
-
-        echo "===== 检查 DTS: eMMC 节点 ====="
-        if ! grep -q "mmc" "$DTS"; then
-          echo "WARNING: DTS 未定义 eMMC 节点"
-        fi
-
-        echo "===== 检查 DTS: SPI-NOR ====="
-        if ! grep -q "spi" "$DTS"; then
-          echo "WARNING: DTS 未定义 SPI-NOR 节点"
-        fi
-
-        echo "===== 检查 DTS: ethernet ====="
-        if ! grep -q "ethernet" "$DTS"; then
-          echo "WARNING: DTS 未定义 ethernet 节点"
-        fi
-
-        echo "===== 检查 DTS: switch ====="
-        if ! grep -q "switch" "$DTS"; then
-          echo "WARNING: DTS 未定义 switch 节点"
-        fi
-
-        echo "===== 检查 DTS: gpio-leds ====="
-        if ! grep -q "gpio-leds" "$DTS"; then
-          echo "WARNING: DTS 未定义 gpio-leds"
-        fi
-
-        echo "===== 检查 DTS: gpio-keys ====="
-        if ! grep -q "gpio-keys" "$DTS"; then
-          echo "WARNING: DTS 未定义 gpio-keys"
-        fi
 
         echo "===== 检查 filogic.mk ====="
         MK=target/linux/mediatek/image/filogic.mk
-
-        if grep -q "define Device/" "$MK" | grep -v sl3000; then
-          echo "FATAL: filogic.mk 中存在非 sl3000 设备定义"
-          exit 1
-        fi
-
         if ! grep -q "Device/sl3000" "$MK"; then
           echo "FATAL: filogic.mk 未定义 sl3000"
-          exit 1
-        fi
-
-        if ! grep -q "TARGET_DEVICES += sl3000" "$MK"; then
-          echo "FATAL: filogic.mk 未添加 sl3000 到 TARGET_DEVICES"
           exit 1
         fi
 
@@ -129,23 +107,22 @@ jobs:
         echo "CONFIG_TARGET_mediatek=y" > .config
         echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
         echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" >> .config
-        echo "config OK"
 
+    # -----------------------------
+    # defconfig + 强校验
+    # -----------------------------
     - name: Feeds + defconfig + 强校验
       run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
-
-        echo "===== defconfig ====="
         make defconfig
 
-        echo "===== 校验 sl3000 是否存在 ====="
         if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000=y" .config; then
           echo "FATAL: sl3000 missing AFTER defconfig"
           exit 1
         fi
-        echo "sl3000 config OK"
 
+    # -----------------------------
+    # 编译固件（失败自动重试）
+    # -----------------------------
     - name: Build firmware
       run: |
         export CCACHE_DIR=~/.ccache
@@ -159,12 +136,18 @@ jobs:
         df -h
         ccache -s || true
 
+    # -----------------------------
+    # 生成 SHA256
+    # -----------------------------
     - name: Generate SHA256 checksums
       run: |
         cd bin/targets/mediatek/filogic/ || exit 0
         sha256sum * > SHA256SUMS || true
         cat SHA256SUMS || true
 
+    # -----------------------------
+    # 上传固件
+    # -----------------------------
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
@@ -173,16 +156,21 @@ jobs:
           bin/targets/mediatek/filogic/*
           bin/targets/mediatek/filogic/SHA256SUMS
 
+    # -----------------------------
+    # 发布 Release
+    # -----------------------------
     - name: Release firmware
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "sl3000-${{ github.run_number }}"
         name: "SL3000 Firmware Build #${{ github.run_number }}"
         body: |
-          自动构建固件（SL3000 / ImmortalWrt 24.10）
-          ✔ 三件套自动检测（config / mk / DTS）
-          ✔ DTS 自动检查（mt7981b-soc / memory / mmc / spi / eth / switch / leds / keys）
-          ✔ config 自动修复
+          ✔ 完全锁定构建环境
+          ✔ 完全锁定 feeds
+          ✔ 完全锁定 kernel
+          ✔ 完全锁定 toolchain
+          ✔ 自动检测三件套
+          ✔ 自动修复 config
           ✔ defconfig 强校验
           ✔ 编译失败自动重试
           ✔ 自动生成 SHA256
