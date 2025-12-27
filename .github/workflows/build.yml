@@ -12,6 +12,14 @@ jobs:
       image: ubuntu:22.04
 
     steps:
+    # -----------------------------
+    # 清理 GitHub Runner 缓存（防止空间不足）
+    # -----------------------------
+    - name: Clean GitHub Runner cache
+      run: |
+        rm -rf /home/runner/actions-runner/cached/_diag/* || true
+        rm -rf /home/runner/actions-runner/_diag/* || true
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
