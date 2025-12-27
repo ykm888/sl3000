@@ -121,6 +121,13 @@ jobs:
         fi
 
     # -----------------------------
+    # 允许 root 运行 configure（tar/coreutils/m4/autoconf 必须）
+    # -----------------------------
+    - name: Allow root configure
+      run: |
+        echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
+
+    # -----------------------------
     # 编译固件（失败自动重试）
     # -----------------------------
     - name: Build firmware
@@ -167,10 +174,8 @@ jobs:
         body: |
           ✔ 完全锁定构建环境
           ✔ 完全锁定 feeds
-          ✔ 完全锁定 kernel
-          ✔ 完全锁定 toolchain
-          ✔ 自动检测三件套
-          ✔ 自动修复 config
+          ✔ 完全锁定 kernel/toolchain
+          ✔ 自动检测 DTS/mk/config
           ✔ defconfig 强校验
           ✔ 编译失败自动重试
           ✔ 自动生成 SHA256
