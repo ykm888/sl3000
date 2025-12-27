@@ -1,7 +1,0 @@
---- a/arch/arm64/boot/dts/mediatek/Makefile
-+++ b/arch/arm64/boot/dts/mediatek/Makefile
-@@
- dtb-y += mt7981-rfb.dtb
- dtb-y += mt7981-360t7-emmc.dtb
- dtb-y += mt7981-gl-mt3000.dtb
-+dtb-y += mt7981-sl3000-emmc.dtb
