@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
-    # 完全锁定构建环境（即使 GitHub 升级 runner 也不受影响）
+    # 完全锁定构建环境
     container:
       image: ubuntu:22.04
 
@@ -18,38 +18,38 @@ jobs:
         ref: immortalwrt-24.10
 
     # -----------------------------
-    # 锁定系统依赖版本（避免 apt 更新）
+    # 安装构建依赖（不锁版本）
     # -----------------------------
-    - name: Install locked dependencies
+    - name: Install dependencies
       run: |
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          build-essential=12.9ubuntu3 \
-          clang=1:14.0-55~exp2 \
-          flex=2.6.4-8 \
-          bison=2:3.8.2+dfsg-1build1 \
-          g++=4:11.2.0-1ubuntu1 \
-          gawk=1:5.1.0-1build1 \
-          gcc-multilib=4:11.2.0-1ubuntu1 \
-          gettext=0.21-4ubuntu4 \
-          git=1:2.34.1-1ubuntu1.10 \
-          libncurses5-dev=6.3-2ubuntu0.1 \
-          libssl-dev=3.0.2-0ubuntu1.15 \
-          rsync=3.2.3-8ubuntu3.1 \
-          unzip=6.0-26ubuntu3.2 \
-          zlib1g-dev=1:1.2.11.dfsg-2ubuntu9.2 \
-          file=1:5.41-3ubuntu0.1 \
-          wget=1.21.2-2ubuntu1 \
-          python3=3.10.6-1~22.04 \
-          python3-pip=22.0.2+dfsg-1ubuntu0.4 \
-          python3-setuptools=59.6.0-1.2ubuntu0.22.04.1 \
-          ccache=4.6.1-1 \
-          perl=5.34.0-3ubuntu1.2 \
-          pkg-config=0.29.2-1ubuntu3 \
-          libelf-dev=0.186-1build1 \
-          libncursesw5-dev=6.3-2ubuntu0.1 \
-          parted=3.4-2build1 \
-          e2fsprogs=1.46.5-2ubuntu1.1
+          build-essential \
+          clang \
+          flex \
+          bison \
+          g++ \
+          gawk \
+          gcc-multilib \
+          gettext \
+          git \
+          libncurses5-dev \
+          libssl-dev \
+          rsync \
+          unzip \
+          zlib1g-dev \
+          file \
+          wget \
+          python3 \
+          python3-pip \
+          python3-setuptools \
+          ccache \
+          perl \
+          pkg-config \
+          libelf-dev \
+          libncursesw5-dev \
+          parted \
+          e2fsprogs
 
     # -----------------------------
     # 锁定 Python 工具链版本
@@ -76,14 +76,14 @@ jobs:
         rm -rf tmp/ staging_dir/ build_dir/
 
     # -----------------------------
-    # 锁定 feeds（不更新、不同步）
+    # 锁定 feeds（不更新）
     # -----------------------------
     - name: Lock feeds (no update)
       run: |
         echo "Feeds locked. No update will be performed."
 
     # -----------------------------
-    # 自动检测三件套 + DTS 检查
+    # 自动检查 DTS + MK + CONFIG
     # -----------------------------
     - name: Auto-check DTS + MK + CONFIG
       run: |
