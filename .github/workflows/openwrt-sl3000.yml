@@ -1,0 +1,96 @@
+name: Build OpenWrt SL3000-EMMC (Full Auto)
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 磁盘优化 + 移到 /mnt
+      - name: Optimize disk space
+        run: |
+          echo "=== Before cleanup ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
+            /usr/lib/jvm /usr/share/swift /usr/share/miniconda /usr/share/az_* \
+            /usr/share/google-cloud-sdk /usr/share/kotlin /usr/share/gradle /usr/share/maven \
+            /usr/share/texlive /usr/share/R /usr/share/mono /usr/share/gcc-* \
+            /usr/share/locale /usr/share/doc /usr/share/man /usr/share/info \
+            /usr/share/icons /usr/share/fonts /usr/share/backgrounds /usr/share/sounds /usr/share/themes
+          sudo mkdir -p /mnt/openwrt
+          sudo chown $USER:$USER /mnt/openwrt
+          rsync -a --delete ./ /mnt/openwrt/
+          cd /mnt/openwrt
+          echo "=== After cleanup ==="
+          df -h /mnt
+
+      # 安装依赖
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib g++-multilib \
+            flex bison gawk gettext libncurses5-dev libncursesw5-dev \
+            python3 python3-distutils git unzip wget curl rsync zlib1g-dev libssl-dev
+
+      # feeds 自动修复
+      - name: Update feeds
+        run: |
+          ./scripts/feeds update -a || ./scripts/feeds update -a
+          ./scripts/feeds install -a || {
+            rm -rf tmp
+            ./scripts/feeds install -a
+          }
+
+      # 自动清理路由器不相关的包
+      - name: Auto clean unrelated packages
+        run: |
+          rm -rf package/utils/audit
+          rm -rf package/libs/libsemanage
+          rm -rf package/system/refpolicy
+          rm -rf package/system/selinux-policy
+          rm -rf package/utils/policycoreutils
+          rm -rf package/utils/pcat-manager
+          rm -rf package/utils/lm-sensors
+          rm -rf package/emortal/autocore
+          rm -rf package/emortal/autosamba
+          rm -rf package/emortal/default-settings
+          rm -rf package/feeds/luci/luci-app-samba4
+          rm -rf package/feeds/luci/luci-app-lldpd
+          rm -rf package/feeds/packages/onionshare-cli
+
+      # defconfig 自动修复
+      - name: Generate config
+        run: |
+          make defconfig || {
+            rm -rf tmp
+            yes "" | make oldconfig
+          }
+
+      # profiles.json 检查
+      - name: Verify profiles.json
+        run: |
+          grep sl3000 tmp/.profiles.json || make defconfig
+
+      # 构建自动修复
+      - name: Build firmware
+        run: |
+          make -j$(nproc) || {
+            echo "Parallel build failed, retrying single job..."
+            make -j1 V=s
+          }
+
+      # 自动发布固件
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-emmc-firmware
+          path: bin/targets/**/sl3000-emmc/*.bin
