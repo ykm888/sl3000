@@ -2526,3 +2526,4 @@ endef
 TARGET_DEVICES += zyxel_nwa50ax-pro
 
 
+
