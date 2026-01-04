@@ -609,6 +609,7 @@ define Device/sl3000-emmc
   DEVICE_VARIANT := EMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
   DEVICE_DTS_DIR := ../dts
+  SUPPORTED_DEVICES += sl3000-emmc
   DEVICE_PACKAGES := kmod-usb3 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware
   IMAGES := sysupgrade.bin
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
@@ -2523,4 +2524,5 @@ define Device/zyxel_nwa50ax-pro
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += zyxel_nwa50ax-pro
+
 
