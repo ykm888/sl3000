@@ -617,7 +617,7 @@ define Device/sl3000-emmc
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
-TARGET_DEVICES += sl3000-emmc
+SUPPORTED_DEVICES := sl3000-emmc
 
 define Device/cmcc_a10-ubootmod
   DEVICE_VENDOR := CMCC
@@ -2524,6 +2524,7 @@ define Device/zyxel_nwa50ax-pro
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += zyxel_nwa50ax-pro
+
 
 
 
