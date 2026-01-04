@@ -1,4 +1,4 @@
-name: Build OpenWrt SL3000-EMMC (Final Fix)
+name: Build OpenWrt SL3000-EMMC (Final Debug Fix)
 
 on:
   workflow_dispatch:   # 手动触发
@@ -45,7 +45,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-multilib g++-multilib \
             flex bison gawk gettext libncurses5-dev libncursesw5-dev \
-            python3 python3-distutils git unzip wget curl rsync zlib1g-dev libssl-dev
+            python3 python3-distutils git unzip wget curl rsync zlib1g-dev libssl-dev \
+            libelf-dev
 
       # feeds 自动修复
       - name: Update feeds
@@ -87,13 +88,20 @@ jobs:
           echo "=== Targetinfo/Profile Check ==="
           grep sl3000 tmp/.targetinfo || echo "TARGETINFO MISSING!"
 
+      # 单线程 verbose 编译 target/linux
+      - name: Debug target/linux
+        run: |
+          make target/linux/compile -j1 V=s || {
+            echo "target/linux compile failed"
+            exit 1
+          }
+
       # 强制生成 profiles.json
       - name: Force generate profiles.json
         run: |
           rm -rf tmp
           make defconfig
-          make target/linux/compile
-          make package/base-files/compile
+          make package/base-files/compile -j1 V=s
           test -f tmp/.profiles.json && echo "profiles.json OK" || echo "profiles.json STILL MISSING!"
           grep sl3000 tmp/.profiles.json || echo "PROFILE STILL MISSING!"
 
