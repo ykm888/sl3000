@@ -1,4 +1,4 @@
-name: Build OpenWrt SL3000-EMMC (Final)
+name: Build OpenWrt SL3000-EMMC (Final Fix)
 
 on:
   workflow_dispatch:   # 手动触发
@@ -64,7 +64,8 @@ jobs:
                  package/utils/pcat-manager package/utils/lm-sensors \
                  package/emortal/autocore package/emortal/autosamba package/emortal/default-settings \
                  package/feeds/luci/luci-app-samba4 package/feeds/luci/luci-app-lldpd \
-                 package/feeds/packages/onionshare-cli package/feeds/packages/python-semanage
+                 package/feeds/packages/onionshare-cli package/feeds/packages/python-semanage \
+                 package/feeds/packages/selinux-python
 
       # 强制写入目标设备配置
       - name: Force target device
@@ -85,11 +86,15 @@ jobs:
           grep sl3000 .config || echo "CONFIG MISSING!"
           echo "=== Targetinfo/Profile Check ==="
           grep sl3000 tmp/.targetinfo || echo "TARGETINFO MISSING!"
-          test -f tmp/.profiles.json || {
-            echo "profiles.json missing, regenerating..."
-            rm -rf tmp
-            make defconfig
-          }
+
+      # 强制生成 profiles.json
+      - name: Force generate profiles.json
+        run: |
+          rm -rf tmp
+          make defconfig
+          make target/linux/compile
+          make package/base-files/compile
+          test -f tmp/.profiles.json && echo "profiles.json OK" || echo "profiles.json STILL MISSING!"
           grep sl3000 tmp/.profiles.json || echo "PROFILE STILL MISSING!"
 
       # 构建自动修复
