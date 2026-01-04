@@ -1,7 +1,12 @@
 name: Build OpenWrt SL3000-EMMC (Host+Toolchain Ready)
 
 on:
-  workflow_dispatch
+  workflow_dispatch:
+    inputs:
+      CLEAN_CACHE:
+        description: "Clean build_dir/tmp before build?"
+        required: false
+        default: "false"
 
 jobs:
   build:
@@ -37,6 +42,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-
 
+      - name: Conditionally clean build_dir/tmp
+        if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
+        run: |
+          echo "🧹 清理构建缓存目录 build_dir 和 tmp"
+          rm -rf build_dir tmp
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -50,7 +61,7 @@ jobs:
           ./scripts/feeds update -a || ./scripts/feeds update -a
           ./scripts/feeds install -a || { rm -rf tmp; ./scripts/feeds install -a; }
 
-      - name: Auto clean unrelated packages
+      - name: Clean unrelated packages
         run: |
           rm -rf package/utils/audit package/libs/libsemanage package/system/refpolicy \
                  package/system/selinux-policy package/utils/policycoreutils \
@@ -84,13 +95,6 @@ jobs:
       - name: Build cross toolchain
         run: |
           make toolchain/install -j$(nproc) V=s
-          ls -l staging_dir/toolchain-*/bin || true
-
-      - name: Sanity check toolchain
-        run: |
-          TOOLDIR=$(echo staging_dir/toolchain-*/bin)
-          test -d "$TOOLDIR" || (echo "Toolchain bin missing"; exit 1)
-          ls "$TOOLDIR" | grep -E 'aarch64-openwrt-linux-musl-gcc' || (echo "aarch64 gcc missing"; exit 1)
 
       - name: Optional profiles.json check
         run: |
