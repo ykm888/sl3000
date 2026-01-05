@@ -1,4 +1,4 @@
-name: Build OpenWrt SL3000-EMMC (Final Stable)
+name: Build OpenWrt SL3000-EMMC (Final Fixed)
 
 on:
   workflow_dispatch:
@@ -11,11 +11,6 @@ on:
         description: "Clean all caches (dl/staging_dir/build_dir/tmp)?"
         required: false
         default: "false"
-
-defaults:
-  run:
-    shell: bash
-    working-directory: /mnt/openwrt
 
 jobs:
   build:
@@ -40,10 +35,12 @@ jobs:
 
       - name: Conditionally clean all caches
         if: ${{ github.event.inputs.CLEAN_ALL == 'true' }}
+        working-directory: /mnt/openwrt
         run: rm -rf dl build_dir staging_dir tmp
 
       - name: Conditionally clean build_dir/tmp
         if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
+        working-directory: /mnt/openwrt
         run: rm -rf build_dir tmp
 
       - name: Cache OpenWrt build
@@ -67,11 +64,13 @@ jobs:
             libelf-dev m4 jq
 
       - name: Update feeds
+        working-directory: /mnt/openwrt
         run: |
           ./scripts/feeds update -a || ./scripts/feeds update -a
           ./scripts/feeds install -a || { rm -rf tmp; ./scripts/feeds install -a; }
 
       - name: Clean unrelated packages
+        working-directory: /mnt/openwrt
         run: |
           rm -rf package/utils/audit package/libs/libsemanage package/system/refpolicy \
                  package/system/selinux-policy package/utils/policycoreutils \
@@ -82,6 +81,7 @@ jobs:
                  package/feeds/packages/selinux-python
 
       - name: Force target device (no config tool)
+        working-directory: /mnt/openwrt
         run: |
           rm -f .config
           cat >> .config <<'EOF'
@@ -92,6 +92,7 @@ jobs:
           make defconfig
 
       - name: Verify three-piece registration
+        working-directory: /mnt/openwrt
         run: |
           echo "=== DTS Check ==="
           test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
@@ -101,12 +102,15 @@ jobs:
           grep -q 'CONFIG_TARGET_.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
 
       - name: Build host tools
+        working-directory: /mnt/openwrt
         run: make tools/install -j$(nproc) V=s
 
       - name: Build cross toolchain
+        working-directory: /mnt/openwrt
         run: make toolchain/install -j$(nproc) V=s
 
       - name: Sanity check toolchain
+        working-directory: /mnt/openwrt
         run: |
           TOOLDIR=$(echo staging_dir/toolchain-*/bin)
           test -d "$TOOLDIR" || (echo "❌ Toolchain bin missing"; exit 1)
@@ -115,6 +119,7 @@ jobs:
           done
 
       - name: Optional profiles.json check
+        working-directory: /mnt/openwrt
         run: |
           make target/linux/compile -j1 V=s || echo "⚠️ target/linux 编译失败，跳过 profiles.json 检查"
           make package/base-files/compile -j1 V=s || echo "⚠️ base-files 编译失败，跳过 profiles.json 检查"
@@ -127,11 +132,13 @@ jobs:
           test -d tmp/.targetinfo && echo "✅ .targetinfo 存在" || echo "⚠️ .targetinfo 缺失"
 
       - name: Build firmware
+        working-directory: /mnt/openwrt
         run: |
           set -eo pipefail
           make -j$(nproc) || { echo "⚠️ 并行构建失败，尝试单线程重试..."; make -j1 V=s; }
 
       - name: Check firmware output
+        working-directory: /mnt/openwrt
         run: |
           ls bin/targets/**/sl3000-emmc/*.bin || (echo "❌ 固件未生成"; exit 1)
 
@@ -140,7 +147,7 @@ jobs:
         with:
           name: sl3000-emmc-firmware
           path: |
-            bin/targets/**/sl3000-emmc/*.bin
-            bin/targets/**/sl3000-emmc/*.manifest
-            bin/targets/**/sl3000-emmc/*.buildinfo
-            bin/targets/**/sl3000-emmc/*.json
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.bin
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
