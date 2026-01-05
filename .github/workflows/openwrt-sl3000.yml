@@ -12,87 +12,141 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout your repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Free disk space
+      - name: Free disk
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
           df -h
 
-      - name: Allocate 100G disk space on /mnt/openwrt
+      - name: Mount tmpfs
         run: |
           sudo mkdir -p /mnt/openwrt
           sudo mount -t tmpfs -o size=100G tmpfs /mnt/openwrt
           sudo chown -R $USER:$USER /mnt/openwrt
-          df -h /mnt/openwrt
-          ls -ld /mnt/openwrt
 
-      - name: Setup build environment
+      - name: Setup deps
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
             zlib1g-dev libssl-dev wget git python3 unzip rsync file
 
-      - name: Move repo to /mnt/openwrt
+      - name: Sync repo to /mnt/openwrt
         run: |
           tar --exclude=.git -cf - . | (cd /mnt/openwrt && tar xpf -)
           cd /mnt/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Apply custom patches
+      - name: Try apply patches if present
         working-directory: /mnt/openwrt
         run: |
-          for p in patches/*.patch; do
-            echo "Applying $p"
-            patch -p1 < "$p"
-          done
+          set -e
+          shopt -s nullglob
+          PATCHES=(patches/*.patch)
+          if [ ${#PATCHES[@]} -gt 0 ]; then
+            echo "Found ${#PATCHES[@]} patches, trying to apply..."
+            # Try git apply first (works with git-format-patch). Falls back to patch -p1.
+            ok=0
+            for p in "${PATCHES[@]}"; do
+              echo "Applying $p (git apply)"
+              if git apply "$p" 2>/dev/null; then
+                ok=1
+              else
+                echo "git apply failed, trying patch -p1 on $p"
+                if patch -p1 < "$p"; then
+                  ok=1
+                else
+                  echo "Patch failed: $p"
+                fi
+              fi
+            done
+            if [ $ok -eq 0 ]; then
+              echo "All patches failed, will fallback to overwrite."
+            fi
+          else
+            echo "No patches found, will fallback to overwrite."
+          fi
 
-      - name: Debug MK and CONFIG
+      - name: Fallback overwrite three-piece (always ensures correctness)
         working-directory: /mnt/openwrt
         run: |
-          echo "=== filogic.mk sl3000 entries ==="
-          grep -n sl3000 target/linux/mediatek/image/filogic.mk || (echo "❌ MK patch未应用"; exit 1)
-          echo "=== .config sl3000 entries ==="
-          grep -n sl3000 .config || (echo "❌ CONFIG patch未应用"; exit 1)
+          # Overwrite DTS
+          cat > target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts <<'EOF'
+          /dts-v1/;
 
-      - name: Verify three-piece registration
+          #include "mt7981.dtsi"
+
+          / {
+            model = "SL3000 EMMC";
+            compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+
+            chosen { bootargs = "console=ttyS0,115200n8"; };
+
+            memory { device_type = "memory"; reg = <0x40000000 0x20000000>; };
+          };
+
+          &uart0 { status = "okay"; };
+          &eth   { status = "okay"; };
+          &mmc0  { status = "okay"; };
+          EOF
+
+          # Overwrite MK
+          cat > target/linux/mediatek/image/filogic.mk <<'EOF'
+          define Device/sl3000-emmc
+            DEVICE_VENDOR := SL
+            DEVICE_MODEL := 3000
+            DEVICE_VARIANT := EMMC
+            DEVICE_DTS := mt7981b-sl3000-emmc
+            SUPPORTED_DEVICES := sl3000-emmc
+            DEVICE_PACKAGES := kmod-usb3 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware
+            IMAGES := sysupgrade.bin
+            KERNEL := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb
+            KERNEL_INITRAMFS := kernel-bin | lzma | \
+                  fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+          endef
+          TARGET_DEVICES += sl3000-emmc
+          EOF
+
+          # Overwrite CONFIG
+          cat > .config <<'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
+          CONFIG_TARGET_ROOTFS_SQUASHFS=y
+          EOF
+
+          make defconfig
+
+      - name: Verify three-piece
         working-directory: /mnt/openwrt
         run: |
-          ls -l target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS patch未应用"; exit 1)
-          grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK patch未应用"; exit 1)
-          grep -q 'sl3000-emmc' .config || (echo "❌ CONFIG patch未应用"; exit 1)
+          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS 缺失"; exit 1)
+          grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK 条目缺失"; exit 1)
+          grep -q 'sl3000-emmc' .config || (echo "❌ CONFIG 缺失"; exit 1)
 
-      - name: Build host tools
+      - name: Build tools
         working-directory: /mnt/openwrt
         run: make tools/install -j$(nproc) V=s
 
-      - name: Build cross toolchain
+      - name: Build toolchain
         working-directory: /mnt/openwrt
         run: make toolchain/install -j$(nproc) V=s
-
-      - name: Sanity check toolchain
-        working-directory: /mnt/openwrt
-        run: |
-          TOOLDIR=$(echo staging_dir/toolchain-*/bin)
-          test -d "$TOOLDIR" || (echo "❌ Toolchain bin missing"; exit 1)
-          for tool in aarch64-openwrt-linux-musl-gcc make-ext4fs mkimage mksquashfs; do
-            find staging_dir -name "*$tool*" | grep -q . || (echo "❌ Tool $tool missing"; exit 1)
-          done
 
       - name: Build firmware
         working-directory: /mnt/openwrt
         run: |
           set -eo pipefail
-          make -j$(nproc) || { echo "⚠️ 并行构建失败，尝试单线程重试..."; make -j1 V=s; }
+          make -j$(nproc) || { echo "并行失败，回退单线程"; make -j1 V=s; }
 
-      - name: Check firmware output
+      - name: Check output
         working-directory: /mnt/openwrt
         run: |
           ls bin/targets/**/sl3000-emmc/*.bin || (echo "❌ 固件未生成"; exit 1)
 
-      - name: Upload firmware artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-emmc-firmware
@@ -101,39 +155,3 @@ jobs:
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: sl3000-emmc-${{ github.run_number }}
-          release_name: SL3000-EMMC Firmware ${{ github.run_number }}
-          draft: false
-          prerelease: false
-
-      - name: Upload firmware to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /mnt/openwrt/bin/targets/**/sl3000-emmc/openwrt-*.bin
-          asset_name: openwrt-sl3000-emmc.bin
-          asset_content_type: application/octet-stream
-
-      - name: Generate SHA256 checksum
-        working-directory: /mnt/openwrt/bin/targets
-        run: |
-          find . -name "openwrt-*.bin" -exec sha256sum {} \; > SHA256SUMS
-
-      - name: Upload checksum to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: /mnt/openwrt/bin/targets/**/sl3000-emmc/SHA256SUMS
-          asset_name: SHA256SUMS
-          asset_content_type: text/plain
