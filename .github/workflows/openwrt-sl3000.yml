@@ -34,7 +34,7 @@ jobs:
 
       - name: Move repo to /mnt/openwrt
         run: |
-          rsync -a --delete ./ /mnt/openwrt/
+          rsync -a --no-owner --no-group --delete ./ /mnt/openwrt/
           cd /mnt/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
