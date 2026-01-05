@@ -44,7 +44,7 @@ jobs:
       - name: Apply custom patches
         working-directory: /mnt/openwrt
         run: |
-          for p in ../patches/*.patch; do
+          for p in patches/*.patch; do
             echo "Applying $p"
             patch -p1 < "$p"
           done
