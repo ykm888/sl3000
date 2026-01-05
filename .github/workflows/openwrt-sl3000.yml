@@ -36,7 +36,6 @@ jobs:
 
       - name: Move repo to /mnt/openwrt
         run: |
-          # 用 tar 管道复制，避免 rsync 权限问题
           tar --exclude=.git -cf - . | (cd /mnt/openwrt && tar xpf -)
           cd /mnt/openwrt
           ./scripts/feeds update -a
@@ -69,6 +68,14 @@ jobs:
       - name: Expand config
         working-directory: /mnt/openwrt
         run: make defconfig
+
+      - name: Debug MK and CONFIG
+        working-directory: /mnt/openwrt
+        run: |
+          echo "=== MK ENTRY CHECK ==="
+          grep -i sl3000 target/linux/mediatek/image/filogic.mk || (echo "❌ MK ENTRY NOT FOUND"; exit 1)
+          echo "=== CONFIG ENTRY CHECK ==="
+          grep -i sl3000 .config || (echo "❌ CONFIG ENTRY NOT FOUND"; exit 1)
 
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
