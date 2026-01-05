@@ -608,7 +608,7 @@ define Device/sl3000-emmc
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := EMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := dts
+  DEVICEDTSDIR := dts
   SUPPORTED_DEVICES := sl3000-emmc
   DEVICE_PACKAGES := \
     kmod-usb3 \
@@ -2528,6 +2528,7 @@ define Device/zyxel_nwa50ax-pro
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += zyxel_nwa50ax-pro
+
 
 
 
