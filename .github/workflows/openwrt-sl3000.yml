@@ -1,4 +1,4 @@
-name: Build OpenWrt SL3000-EMMC (Host+Toolchain Ready)
+name: Build OpenWrt SL3000-EMMC (Enhanced v3)
 
 on:
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
           sudo apt-get install -y build-essential gcc-multilib g++-multilib \
             flex bison gawk gettext libncurses5-dev libncursesw5-dev \
             python3 python3-distutils git unzip wget curl rsync zlib1g-dev libssl-dev \
-            libelf-dev m4
+            libelf-dev m4 jq
 
       - name: Update feeds
         run: |
@@ -97,11 +97,11 @@ jobs:
       - name: Verify three-piece registration
         run: |
           echo "=== DTS Check ==="
-          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts && echo "DTS OK" || (echo "DTS MISSING!"; exit 1)
+          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
           echo "=== filogic.mk Check ==="
-          grep -A10 sl3000-emmc target/linux/mediatek/image/filogic.mk || (echo "MK ENTRY MISSING!"; exit 1)
+          grep -q '^define Device/sl3000-emmc$' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
           echo "=== .config Check ==="
-          grep -E 'DEVICE_sl3000-emmc|CONFIG_TARGET_PROFILE="DEVICE_sl3000-emmc"' .config || (echo "CONFIG MISSING!"; exit 1)
+          grep -q 'CONFIG_TARGET.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
 
       - name: Build cross toolchain
         run: |
@@ -110,8 +110,10 @@ jobs:
       - name: Sanity check toolchain
         run: |
           TOOLDIR=$(echo staging_dir/toolchain-*/bin)
-          test -d "$TOOLDIR" || (echo "Toolchain bin missing"; exit 1)
-          ls "$TOOLDIR" | grep -E 'aarch64-openwrt-linux-musl-gcc' || (echo "aarch64 gcc missing"; exit 1)
+          test -d "$TOOLDIR" || (echo "❌ Toolchain bin missing"; exit 1)
+          for tool in gcc make-ext4fs mkimage mksquashfs; do
+            find "$TOOLDIR" -name "*$tool*" | grep -q . || (echo "❌ Tool $tool missing"; exit 1)
+          done
 
       - name: Optional profiles.json check
         run: |
@@ -124,13 +126,23 @@ jobs:
           else
             echo "⚠️ profiles.json 缺失（不影响固件编译）"
           fi
+          test -d tmp/.targetinfo && echo "✅ .targetinfo 存在" || echo "⚠️ .targetinfo 缺失"
 
       - name: Build firmware
         run: |
+          set -eo pipefail
           make -j$(nproc) || { echo "⚠️ 并行构建失败，尝试单线程重试..."; make -j1 V=s; }
+
+      - name: Check firmware output
+        run: |
+          ls bin/targets/**/sl3000-emmc/*.bin || (echo "❌ 固件未生成"; exit 1)
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-emmc-firmware
-          path: bin/targets/**/sl3000-emmc/*.bin
+          path: |
+            bin/targets/**/sl3000-emmc/*.bin
+            bin/targets/**/sl3000-emmc/*.manifest
+            bin/targets/**/sl3000-emmc/*.buildinfo
+            bin/targets/**/sl3000-emmc/*.json
