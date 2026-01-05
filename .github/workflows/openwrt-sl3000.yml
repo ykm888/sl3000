@@ -43,8 +43,9 @@ jobs:
       - name: Overwrite three-piece files
         working-directory: /mnt/openwrt
         run: |
-          # DTS
-          cat > target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts <<'EOF'
+          # DTS (正确路径)
+          mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
+          cat > target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts <<'EOF'
           /dts-v1/;
 
           #include "mt7981.dtsi"
@@ -88,12 +89,12 @@ jobs:
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           EOF
 
-          make defconfig
+          make olddefconfig
 
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
         run: |
-          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS 缺失"; exit 1)
+          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts || (echo "❌ DTS 缺失"; exit 1)
           grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK 条目缺失"; exit 1)
           grep -q 'sl3000-emmc' .config || (echo "❌ CONFIG 缺失"; exit 1)
 
