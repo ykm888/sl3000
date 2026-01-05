@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout source
+      - name: Checkout your repo
         uses: actions/checkout@v4
 
       - name: Free disk space
@@ -32,9 +32,9 @@ jobs:
           sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
             zlib1g-dev libssl-dev wget git python3 unzip rsync file
 
-      - name: Prepare OpenWrt
+      - name: Move repo to /mnt/openwrt
         run: |
-          git clone https://github.com/openwrt/openwrt.git /mnt/openwrt
+          rsync -a --delete ./ /mnt/openwrt/
           cd /mnt/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /mnt/openwrt/dl
-          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('feeds.conf.default') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-dl-
 
@@ -56,15 +56,6 @@ jobs:
           key: ${{ runner.os }}-openwrt-build-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-openwrt-build-
-
-      - name: Copy custom DTS and mk
-        run: |
-          cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-          cp target/linux/mediatek/image/filogic.mk /mnt/openwrt/target/linux/mediatek/image/
-
-      - name: Load config
-        run: |
-          cp .config /mnt/openwrt/.config
 
       - name: Expand config
         working-directory: /mnt/openwrt
