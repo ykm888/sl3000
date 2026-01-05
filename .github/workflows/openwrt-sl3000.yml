@@ -89,7 +89,7 @@ jobs:
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
           EOF
 
-          make olddefconfig
+          # 不跑 olddefconfig，直接用 .config
 
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
