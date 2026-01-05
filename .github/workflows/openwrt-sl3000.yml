@@ -1,4 +1,4 @@
-name: Build OpenWrt SL3000-EMMC (Enhanced v3)
+name: Build OpenWrt SL3000-EMMC (Final Stable)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,11 @@ on:
         required: false
         default: "false"
 
+defaults:
+  run:
+    shell: bash
+    working-directory: /mnt/openwrt
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -20,7 +25,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Optimize disk space
+      - name: Optimize disk space and move source
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
             /usr/lib/jvm /usr/share/swift /usr/share/miniconda /usr/share/az_* \
@@ -31,29 +36,24 @@ jobs:
           sudo mkdir -p /mnt/openwrt
           sudo chown $USER:$USER /mnt/openwrt
           rsync -a --delete ./ /mnt/openwrt/
-          cd /mnt/openwrt
           df -h /mnt
 
       - name: Conditionally clean all caches
         if: ${{ github.event.inputs.CLEAN_ALL == 'true' }}
-        run: |
-          echo "🧨 清理所有缓存目录"
-          rm -rf dl build_dir staging_dir tmp
+        run: rm -rf dl build_dir staging_dir tmp
 
       - name: Conditionally clean build_dir/tmp
         if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
-        run: |
-          echo "🧹 清理构建缓存目录 build_dir 和 tmp"
-          rm -rf build_dir tmp
+        run: rm -rf build_dir tmp
 
       - name: Cache OpenWrt build
         uses: actions/cache@v4
         with:
           path: |
-            dl
-            build_dir
-            staging_dir
-            tmp
+            /mnt/openwrt/dl
+            /mnt/openwrt/build_dir
+            /mnt/openwrt/staging_dir
+            /mnt/openwrt/tmp
           key: ${{ runner.os }}-openwrt-${{ github.ref_name }}
           restore-keys: |
             ${{ runner.os }}-openwrt-
@@ -81,17 +81,14 @@ jobs:
                  package/feeds/packages/onionshare-cli package/feeds/packages/python-semanage \
                  package/feeds/packages/selinux-python
 
-      - name: Build host tools
-        run: |
-          make tools/install -j$(nproc) V=s
-          echo "$(pwd)/staging_dir/host/bin" >> $GITHUB_PATH
-
-      - name: Force target device
+      - name: Force target device (no config tool)
         run: |
           rm -f .config
-          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek y
-          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek_filogic y
-          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc y
+          cat >> .config <<'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
+          EOF
           make defconfig
 
       - name: Verify three-piece registration
@@ -101,23 +98,24 @@ jobs:
           echo "=== filogic.mk Check ==="
           grep -q '^define Device/sl3000-emmc$' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
           echo "=== .config Check ==="
-          grep -q 'CONFIG_TARGET.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
+          grep -q 'CONFIG_TARGET_.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
+
+      - name: Build host tools
+        run: make tools/install -j$(nproc) V=s
 
       - name: Build cross toolchain
-        run: |
-          make toolchain/install -j$(nproc) V=s
+        run: make toolchain/install -j$(nproc) V=s
 
       - name: Sanity check toolchain
         run: |
           TOOLDIR=$(echo staging_dir/toolchain-*/bin)
           test -d "$TOOLDIR" || (echo "❌ Toolchain bin missing"; exit 1)
-          for tool in gcc make-ext4fs mkimage mksquashfs; do
+          for tool in aarch64-openwrt-linux-musl-gcc make-ext4fs mkimage mksquashfs; do
             find "$TOOLDIR" -name "*$tool*" | grep -q . || (echo "❌ Tool $tool missing"; exit 1)
           done
 
       - name: Optional profiles.json check
         run: |
-          echo "=== profiles.json 检查（非阻塞）==="
           make target/linux/compile -j1 V=s || echo "⚠️ target/linux 编译失败，跳过 profiles.json 检查"
           make package/base-files/compile -j1 V=s || echo "⚠️ base-files 编译失败，跳过 profiles.json 检查"
           if [ -f tmp/.profiles.json ]; then
