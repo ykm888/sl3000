@@ -24,7 +24,10 @@ jobs:
         run: |
           sudo mkdir -p /mnt/openwrt
           sudo mount -t tmpfs -o size=100G tmpfs /mnt/openwrt
+          # 修复权限：把挂载点改属主为当前用户，避免后续属性/时间设置权限问题
+          sudo chown -R $USER:$USER /mnt/openwrt
           df -h /mnt/openwrt
+          ls -ld /mnt/openwrt
 
       - name: Setup build environment
         run: |
@@ -34,7 +37,8 @@ jobs:
 
       - name: Move repo to /mnt/openwrt
         run: |
-          rsync -a --no-owner --no-group --delete ./ /mnt/openwrt/
+          # 关闭所有者/组/时间保留，避免 chown/chgrp/utimes 权限问题
+          rsync -rltD --delete --no-owner --no-group --no-times ./ /mnt/openwrt/
           cd /mnt/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
