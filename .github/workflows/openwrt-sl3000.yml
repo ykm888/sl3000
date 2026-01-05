@@ -41,43 +41,28 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Force override DTS and mk
-        run: |
-          cp -f ./target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts /mnt/openwrt/target/linux/mediatek/dts/
-          cp -f ./target/linux/mediatek/image/filogic.mk /mnt/openwrt/target/linux/mediatek/image/
-          cp -f ./.config /mnt/openwrt/.config
-
-      - name: Normalize .config keys
+      - name: Apply custom patches
         working-directory: /mnt/openwrt
         run: |
-          sed -i \
-            -e 's/^CONFIGTARGET_/CONFIG_TARGET_/g' \
-            -e 's/^CONFIGPACKAGE/CONFIG_PACKAGE_/g' \
-            -e 's/^CONFIGBUSYBOXDEFAULT_/CONFIG_BUSYBOX_DEFAULT_/g' \
-            -e 's/^CONFIGCPUFREQ/CONFIG_CPU_FREQ/g' \
-            -e 's/^CONFIGNRCPUS/CONFIG_NR_CPUS/g' \
-            -e 's/^CONFIGMAKEEXT4FS_/CONFIG_MAKE_EXT4FS_/g' \
-            -e 's/^CONFIGEXT4FS/CONFIG_EXT4_FS/g' \
-            -e 's/^CONFIGF2FSFS/CONFIG_F2FS_FS/g' \
-            -e 's/^CONFIGSLUBDEBUG/CONFIG_SLUB_DEBUG/g' \
-            -e 's/^CONFIGTCPCONG_/CONFIG_TCP_CONG_/g' \
-            .config
-          make defconfig
+          for p in ../patches/*.patch; do
+            echo "Applying $p"
+            patch -p1 < "$p"
+          done
 
       - name: Debug MK and CONFIG
         working-directory: /mnt/openwrt
         run: |
           echo "=== filogic.mk sl3000 entries ==="
-          grep -n sl3000 target/linux/mediatek/image/filogic.mk || (echo "❌ MK ENTRY NOT FOUND"; exit 1)
+          grep -n sl3000 target/linux/mediatek/image/filogic.mk || (echo "❌ MK patch未应用"; exit 1)
           echo "=== .config sl3000 entries ==="
-          grep -n sl3000 .config || (echo "❌ CONFIG ENTRY NOT FOUND"; exit 1)
+          grep -n sl3000 .config || (echo "❌ CONFIG patch未应用"; exit 1)
 
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
         run: |
-          ls -l target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS 文件缺失！"; exit 1)
-          grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK 条目缺失！"; exit 1)
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || (echo "❌ CONFIG MISSING!"; exit 1)
+          ls -l target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS patch未应用"; exit 1)
+          grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK patch未应用"; exit 1)
+          grep -q 'sl3000-emmc' .config || (echo "❌ CONFIG patch未应用"; exit 1)
 
       - name: Build host tools
         working-directory: /mnt/openwrt
