@@ -42,6 +42,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Copy custom DTS and mk
+        run: |
+          cp ./target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts /mnt/openwrt/target/linux/mediatek/dts/
+          cp ./target/linux/mediatek/image/filogic.mk /mnt/openwrt/target/linux/mediatek/image/
+          cp ./.config /mnt/openwrt/.config
+
       - name: Cache OpenWrt dl
         uses: actions/cache@v4
         with:
