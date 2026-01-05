@@ -1,16 +1,11 @@
-name: Build OpenWrt SL3000-EMMC (Final Stable)
+name: Build SL3000-EMMC Firmware
 
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
-    inputs:
-      CLEAN_CACHE:
-        description: "Clean build_dir/tmp before build?"
-        required: false
-        default: "false"
-      CLEAN_ALL:
-        description: "Clean all caches (dl/staging_dir/build_dir/tmp)?"
-        required: false
-        default: "false"
 
 jobs:
   build:
@@ -20,202 +15,37 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Optimize disk space and move source
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
-            /usr/lib/jvm /usr/share/swift /usr/share/miniconda /usr/share/az_* \
-            /usr/share/google-cloud-sdk /usr/share/kotlin /usr/share/gradle /usr/share/maven \
-            /usr/share/texlive /usr/share/R /usr/share/mono /usr/share/gcc-* \
-            /usr/share/locale /usr/share/doc /usr/share/man /usr/share/info \
-            /usr/share/icons /usr/share/fonts /usr/share/backgrounds /usr/share/sounds /usr/share/themes
-          sudo mkdir -p /mnt/openwrt
-          sudo chown $USER:$USER /mnt/openwrt
-          rsync -a --delete ./ /mnt/openwrt/
-          df -h /mnt
-
-      - name: Conditionally clean all caches
-        if: ${{ github.event.inputs.CLEAN_ALL == 'true' }}
-        working-directory: /mnt/openwrt
-        run: rm -rf dl build_dir staging_dir tmp
-
-      - name: Conditionally clean build_dir/tmp
-        if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
-        working-directory: /mnt/openwrt
-        run: rm -rf build_dir tmp
-
-      - name: Cache OpenWrt build
-        uses: actions/cache@v4
-        with:
-          path: |
-            /mnt/openwrt/dl
-            /mnt/openwrt/build_dir
-            /mnt/openwrt/staging_dir
-            /mnt/openwrt/tmp
-          key: ${{ runner.os }}-openwrt-${{ github.ref_name }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-
-
-      - name: Install dependencies
+      - name: Setup build environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib g++-multilib \
-            flex bison gawk gettext libncurses5-dev libncursesw5-dev \
-            python3 python3-distutils git unzip wget curl rsync zlib1g-dev libssl-dev \
-            libelf-dev m4 jq
+          sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
+            zlib1g-dev libssl-dev wget git python3 unzip rsync file
 
-      - name: Update feeds
-        working-directory: /mnt/openwrt
+      - name: Prepare OpenWrt
         run: |
-          ./scripts/feeds update -a || ./scripts/feeds update -a
-          ./scripts/feeds install -a || { rm -rf tmp; ./scripts/feeds install -a; }
+          git clone https://github.com/openwrt/openwrt.git /mnt/openwrt
+          cd /mnt/openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Clean unrelated packages
-        working-directory: /mnt/openwrt
+      - name: Copy custom DTS and mk
         run: |
-          rm -rf package/utils/audit package/libs/libsemanage package/system/refpolicy \
-                 package/system/selinux-policy package/utils/policycoreutils \
-                 package/utils/pcat-manager package/utils/lm-sensors \
-                 package/emortal/autocore package/emortal/autosamba package/emortal/default-settings \
-                 package/feeds/luci/luci-app-samba4 package/feeds/luci/luci-app-lldpd \
-                 package/feeds/packages/onionshare-cli package/feeds/packages/python-semanage \
-                 package/feeds/packages/selinux-python
+          cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+          cp target/linux/mediatek/image/filogic.mk /mnt/openwrt/target/linux/mediatek/image/
 
-      - name: Force target device (full config)
-        working-directory: /mnt/openwrt
+      - name: Load config
         run: |
-          rm -f .config
-          cat > .config <<'EOF'
-          # 这里粘贴完整修复版 .config 内容（sl3000-emmc，含 CONFIG_MAKE_EXT4FS_TOOLS=y）
-          CONFIG_TARGET_mediatek=y
-          CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          CONFIG_PACKAGE_base-files=y
-          CONFIG_PACKAGE_busybox=y
-          CONFIG_PACKAGE_ca-certificates=y
-          CONFIG_PACKAGE_dnsmasq-full=y
-          CONFIG_PACKAGE_dropbear=y
-          CONFIG_PACKAGE_firewall4=y
-          CONFIG_PACKAGE_iptables-nft=y
-          CONFIG_PACKAGE_ip6tables-nft=y
-          CONFIG_PACKAGE_odhcp6c=y
-          CONFIG_PACKAGE_odhcpd-ipv6only=y
-          CONFIG_PACKAGE_ppp=y
-          CONFIG_PACKAGE_ppp-mod-pppoe=y
-          CONFIG_PACKAGE_ubus=y
-          CONFIG_PACKAGE_ubusd=y
-          CONFIG_PACKAGE_uci=y
-          CONFIG_PACKAGE_logd=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-base=y
-          CONFIG_PACKAGE_luci-mod-admin-full=y
-          CONFIG_PACKAGE_luci-theme-bootstrap=y
-          CONFIG_PACKAGE_luci-app-opkg=y
-          CONFIG_PACKAGE_luci-ssl=y
-          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-          CONFIG_PACKAGE_uhttpd=y
-          CONFIG_PACKAGE_uhttpd-mod-ubus=y
-          CONFIG_PACKAGE_libustream-mbedtls=y
-          CONFIG_PACKAGE_rpcd=y
-          CONFIG_PACKAGE_rpcd-mod-rrdns=y
-          CONFIG_PACKAGE_libiwinfo=y
-          CONFIG_PACKAGE_libiwinfo-data=y
-          CONFIG_PACKAGE_libiwinfo-lua=y
-          CONFIG_PACKAGE_lua=y
-          CONFIG_PACKAGE_ip-full=y
-          CONFIG_PACKAGE_ipset=y
-          CONFIG_PACKAGE_iptables-mod-tproxy=y
-          CONFIG_PACKAGE_resolveip=y
-          CONFIG_PACKAGE_kmod-sched-cake=y
-          CONFIG_PACKAGE_tc=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_TCP_CONG="bbr"
-          CONFIG_PACKAGE_kmod-mt76=y
-          CONFIG_PACKAGE_kmod-mt76-core=y
-          CONFIG_PACKAGE_kmod-mt76-connac=y
-          CONFIG_PACKAGE_kmod-mt7981-firmware=y
-          CONFIG_PACKAGE_wpad-basic-mbedtls=y
-          CONFIG_PACKAGE_iwinfo=y
-          CONFIG_CFG80211_INTERNAL_REGDB=y
-          CONFIG_PACKAGE_wireless-regdb=y
-          CONFIG_PACKAGE_block-mount=y
-          CONFIG_PACKAGE_blockd=y
-          CONFIG_PACKAGE_kmod-fs-ext4=y
-          CONFIG_PACKAGE_kmod-fs-f2fs=y
-          CONFIG_PACKAGE_kmod-mmc=y
-          CONFIG_PACKAGE_kmod-mmc-mtk=y
-          CONFIG_PACKAGE_e2fsprogs=y
-          CONFIG_PACKAGE_resize2fs=y
-          CONFIG_PACKAGE_tune2fs=y
-          CONFIG_PACKAGE_mkf2fs=y
-          CONFIG_PACKAGE_f2fsck=y
-          CONFIG_PACKAGE_mount-utils=y
-          CONFIG_PACKAGE_kmod-nls-base=y
-          CONFIG_MAKE_EXT4FS_TOOLS=y
-          CONFIG_PACKAGE_kmod-mediatek_eth=y
-          CONFIG_PACKAGE_kmod-mediatek_hnat=y
-          CONFIG_PACKAGE_kmod-mt7531=y
-          CONFIG_PACKAGE_bridge=y
-          CONFIG_PACKAGE_kmod-bridge=y
-          CONFIG_CPUFREQ=y
-          CONFIG_CPUFREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_NR_CPUS=4
-          CONFIG_SCHED_MC=y
-          CONFIG_SCHED_SMT=y
-          CONFIG_RPS=y
-          CONFIG_XPS=y
-          CONFIG_SMP=y
-          CONFIG_PACKAGE_kmod-leds-gpio=y
-          CONFIG_PACKAGE_kmod-gpio-button-hotplug=y
-          CONFIG_PACKAGE_coreutils=y
-          CONFIG_PACKAGE_coreutils-base64=y
-          CONFIG_PACKAGE_htop=y
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_wget-ssl=y
-          CONFIG_PACKAGE_tar=y
-          CONFIG_PACKAGE_unzip=y
-          CONFIG_PACKAGE_strace=y
-          CONFIG_PACKAGE_tcpdump-mini=y
-          CONFIG_PACKAGE_audit=n
-          CONFIG_PACKAGE_policycoreutils=n
-          CONFIG_PACKAGE_pcat-manager=n
-          CONFIG_PACKAGE_kexec-tools=n
-          CONFIG_PACKAGE_default-settings=n
-          CONFIG_PACKAGE_default-settings-chn=n
-          CONFIG_PACKAGE_wsdd2=n
-          CONFIG_PACKAGE_lm-sensors=n
-          CONFIG_PACKAGE_luci-app-samba4=n
-          CONFIG_BUSYBOX_DEFAULT_PAM=n
-          CONFIG_BUSYBOX_DEFAULT_RPC=n
-          CONFIG_MODULES=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KEXEC=n
-          CONFIG_KEXEC_FILE=n
-          CONFIG_CRASHDUMP=n
-          CONFIG_CRASH_HOTPLUG=n
-          CONFIG_SQUASHFS=y
-          CONFIG_EXT4_FS=y
-          CONFIG_F2FS_FS=y
-          CONFIG_CFG80211=y
-          CONFIG_MAC80211=y
-          CONFIG_MT76=y
-          CONFIG_SLUB=y
-          CONFIG_SLUB_DEBUG=n
-          CONFIG_TRANSPARENT_HUGEPAGE=n
-          CONFIG_ZSWAP=n
-          CONFIG_ZRAM=n
-          EOF
-          make defconfig
+          cp .config /mnt/openwrt/.config
 
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
         run: |
           echo "=== DTS Check ==="
-          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
+          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
           echo "=== filogic.mk Check ==="
           grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
           echo "=== .config Check ==="
-          grep -q 'CONFIG_TARGET_.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
 
       - name: Build host tools
         working-directory: /mnt/openwrt
@@ -233,19 +63,6 @@ jobs:
           for tool in aarch64-openwrt-linux-musl-gcc make-ext4fs mkimage mksquashfs; do
             find staging_dir -name "*$tool*" | grep -q . || (echo "❌ Tool $tool missing"; exit 1)
           done
-
-      - name: Optional profiles.json check
-        working-directory: /mnt/openwrt
-        run: |
-          make target/linux/compile -j1 V=s || echo "⚠️ target/linux 编译失败，跳过 profiles.json 检查"
-          make package/base-files/compile -j1 V=s || echo "⚠️ base-files 编译失败，跳过 profiles.json 检查"
-          if [ -f tmp/.profiles.json ]; then
-            echo "✅ profiles.json 已生成"
-            grep sl3000 tmp/.profiles.json || echo "⚠️ profiles.json 中未找到 sl3000-emmc"
-          else
-            echo "⚠️ profiles.json 缺失（不影响固件编译）"
-          fi
-          test -d tmp/.targetinfo && echo "✅ .targetinfo 存在" || echo "⚠️ .targetinfo 缺失"
 
       - name: Build firmware
         working-directory: /mnt/openwrt
@@ -267,3 +84,24 @@ jobs:
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: sl3000-emmc-${{ github.run_number }}
+          release_name: SL3000-EMMC Firmware ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Upload firmware to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: /mnt/openwrt/bin/targets/**/sl3000-emmc/openwrt-*.bin
+          asset_name: openwrt-sl3000-emmc.bin
+          asset_content_type: application/octet-stream
