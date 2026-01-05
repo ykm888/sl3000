@@ -7,6 +7,10 @@ on:
         description: "Clean build_dir/tmp before build?"
         required: false
         default: "false"
+      CLEAN_ALL:
+        description: "Clean all caches (dl/staging_dir/build_dir/tmp)?"
+        required: false
+        default: "false"
 
 jobs:
   build:
@@ -30,6 +34,18 @@ jobs:
           cd /mnt/openwrt
           df -h /mnt
 
+      - name: Conditionally clean all caches
+        if: ${{ github.event.inputs.CLEAN_ALL == 'true' }}
+        run: |
+          echo "🧨 清理所有缓存目录"
+          rm -rf dl build_dir staging_dir tmp
+
+      - name: Conditionally clean build_dir/tmp
+        if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
+        run: |
+          echo "🧹 清理构建缓存目录 build_dir 和 tmp"
+          rm -rf build_dir tmp
+
       - name: Cache OpenWrt build
         uses: actions/cache@v4
         with:
@@ -41,12 +57,6 @@ jobs:
           key: ${{ runner.os }}-openwrt-${{ github.ref_name }}
           restore-keys: |
             ${{ runner.os }}-openwrt-
-
-      - name: Conditionally clean build_dir/tmp
-        if: ${{ github.event.inputs.CLEAN_CACHE == 'true' }}
-        run: |
-          echo "🧹 清理构建缓存目录 build_dir 和 tmp"
-          rm -rf build_dir tmp
 
       - name: Install dependencies
         run: |
@@ -71,11 +81,17 @@ jobs:
                  package/feeds/packages/onionshare-cli package/feeds/packages/python-semanage \
                  package/feeds/packages/selinux-python
 
+      - name: Build host tools
+        run: |
+          make tools/install -j$(nproc) V=s
+          echo "$(pwd)/staging_dir/host/bin" >> $GITHUB_PATH
+
       - name: Force target device
         run: |
-          ./scripts/config set CONFIG_TARGET_mediatek y
-          ./scripts/config set CONFIG_TARGET_mediatek_filogic y
-          ./scripts/config set CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc y
+          rm -f .config
+          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek y
+          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek_filogic y
+          staging_dir/host/bin/config --set-str CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc y
           make defconfig
 
       - name: Verify three-piece registration
@@ -87,14 +103,15 @@ jobs:
           echo "=== .config Check ==="
           grep -E 'DEVICE_sl3000-emmc|CONFIG_TARGET_PROFILE="DEVICE_sl3000-emmc"' .config || (echo "CONFIG MISSING!"; exit 1)
 
-      - name: Build host tools
-        run: |
-          make tools/install -j$(nproc) V=s
-          echo "$(pwd)/staging_dir/host/bin" >> $GITHUB_PATH
-
       - name: Build cross toolchain
         run: |
           make toolchain/install -j$(nproc) V=s
+
+      - name: Sanity check toolchain
+        run: |
+          TOOLDIR=$(echo staging_dir/toolchain-*/bin)
+          test -d "$TOOLDIR" || (echo "Toolchain bin missing"; exit 1)
+          ls "$TOOLDIR" | grep -E 'aarch64-openwrt-linux-musl-gcc' || (echo "aarch64 gcc missing"; exit 1)
 
       - name: Optional profiles.json check
         run: |
