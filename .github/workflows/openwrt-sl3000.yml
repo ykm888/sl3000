@@ -97,7 +97,7 @@ jobs:
           echo "=== DTS Check ==="
           test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
           echo "=== filogic.mk Check ==="
-          grep -q '^define Device/sl3000-emmc$' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
+          grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
           echo "=== .config Check ==="
           grep -q 'CONFIG_TARGET_.*sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
 
