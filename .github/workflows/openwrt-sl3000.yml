@@ -67,7 +67,7 @@ jobs:
       - name: Verify three-piece registration
         working-directory: /mnt/openwrt
         run: |
-          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts || (echo "❌ DTS MISSING!"; exit 1)
+          test -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || (echo "❌ DTS MISSING!"; exit 1)
           grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK ENTRY MISSING!"; exit 1)
           grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || (echo "❌ CONFIG MISSING!"; exit 1)
 
