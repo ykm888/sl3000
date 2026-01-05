@@ -15,6 +15,11 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
+          df -h
+
       - name: Setup build environment
         run: |
           sudo apt-get update
@@ -23,40 +28,61 @@ jobs:
 
       - name: Prepare OpenWrt
         run: |
-          git clone https://github.com/openwrt/openwrt.git openwrt
-          cd openwrt
+          sudo mkdir -p /mnt/openwrt
+          sudo chown $USER:$USER /mnt/openwrt
+          git clone https://github.com/openwrt/openwrt.git /mnt/openwrt
+          cd /mnt/openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Cache OpenWrt dl
+        uses: actions/cache@v4
+        with:
+          path: /mnt/openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-dl-
+
+      - name: Cache OpenWrt build
+        uses: actions/cache@v4
+        with:
+          path: |
+            /mnt/openwrt/staging_dir
+            /mnt/openwrt/build_dir
+          key: ${{ runner.os }}-openwrt-build-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-build-
+
       - name: Copy custom DTS and mk
         run: |
-          cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-          cp target/linux/mediatek/image/filogic.mk openwrt/target/linux/mediatek/image/
+          cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+          cp target/linux/mediatek/image/filogic.mk /mnt/openwrt/target/linux/mediatek/image/
 
       - name: Load config
         run: |
-          cp .config openwrt/.config
+          cp .config /mnt/openwrt/.config
+
+      - name: Expand config
+        working-directory: /mnt/openwrt
+        run: make defconfig
 
       - name: Verify three-piece registration
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: |
-          echo "=== DTS Check ==="
-          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts && echo "✅ DTS OK" || (echo "❌ DTS MISSING!"; exit 1)
-          echo "=== filogic.mk Check ==="
-          grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk && echo "✅ filogic.mk OK" || (echo "❌ MK ENTRY MISSING!"; exit 1)
-          echo "=== .config Check ==="
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config && echo "✅ .config OK" || (echo "❌ CONFIG MISSING!"; exit 1)
+          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts || (echo "❌ DTS MISSING!"; exit 1)
+          grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK ENTRY MISSING!"; exit 1)
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || (echo "❌ CONFIG MISSING!"; exit 1)
 
       - name: Build host tools
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: make tools/install -j$(nproc) V=s
 
       - name: Build cross toolchain
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: make toolchain/install -j$(nproc) V=s
 
       - name: Sanity check toolchain
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: |
           TOOLDIR=$(echo staging_dir/toolchain-*/bin)
           test -d "$TOOLDIR" || (echo "❌ Toolchain bin missing"; exit 1)
@@ -64,27 +90,14 @@ jobs:
             find staging_dir -name "*$tool*" | grep -q . || (echo "❌ Tool $tool missing"; exit 1)
           done
 
-      - name: Optional profiles.json check
-        working-directory: openwrt
-        run: |
-          make target/linux/compile -j1 V=s || echo "⚠️ target/linux 编译失败，跳过 profiles.json 检查"
-          make package/base-files/compile -j1 V=s || echo "⚠️ base-files 编译失败，跳过 profiles.json 检查"
-          if [ -f tmp/.profiles.json ]; then
-            echo "✅ profiles.json 已生成"
-            grep sl3000 tmp/.profiles.json || echo "⚠️ profiles.json 中未找到 sl3000-emmc"
-          else
-            echo "⚠️ profiles.json 缺失（不影响固件编译）"
-          fi
-          test -d tmp/.targetinfo && echo "✅ .targetinfo 存在" || echo "⚠️ .targetinfo 缺失"
-
       - name: Build firmware
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: |
           set -eo pipefail
           make -j$(nproc) || { echo "⚠️ 并行构建失败，尝试单线程重试..."; make -j1 V=s; }
 
       - name: Check firmware output
-        working-directory: openwrt
+        working-directory: /mnt/openwrt
         run: |
           ls bin/targets/**/sl3000-emmc/*.bin || (echo "❌ 固件未生成"; exit 1)
 
@@ -93,10 +106,10 @@ jobs:
         with:
           name: sl3000-emmc-firmware
           path: |
-            openwrt/bin/targets/**/sl3000-emmc/*.bin
-            openwrt/bin/targets/**/sl3000-emmc/*.manifest
-            openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
-            openwrt/bin/targets/**/sl3000-emmc/*.json
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.bin
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
 
       - name: Create GitHub Release
         id: create_release
@@ -115,15 +128,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: openwrt/bin/targets/**/sl3000-emmc/openwrt-*.bin
+          asset_path: /mnt/openwrt/bin/targets/**/sl3000-emmc/openwrt-*.bin
           asset_name: openwrt-sl3000-emmc.bin
           asset_content_type: application/octet-stream
 
       - name: Generate SHA256 checksum
-        working-directory: openwrt/bin/targets
+        working-directory: /mnt/openwrt/bin/targets
         run: |
           find . -name "openwrt-*.bin" -exec sha256sum {} \; > SHA256SUMS
-        continue-on-error: false
 
       - name: Upload checksum to Release
         uses: actions/upload-release-asset@v1
@@ -131,6 +143,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: openwrt/bin/targets/**/sl3000-emmc/SHA256SUMS
+          asset_path: /mnt/openwrt/bin/targets/**/sl3000-emmc/SHA256SUMS
           asset_name: SHA256SUMS
           asset_content_type: text/plain
