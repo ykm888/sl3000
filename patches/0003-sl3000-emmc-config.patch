@@ -1,0 +1,7 @@
+--- a/.config
++++ b/.config
+@@
++CONFIG_TARGET_mediatek=y
++CONFIG_TARGET_mediatek_filogic=y
++CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
++CONFIG_TARGET_ROOTFS_SQUASHFS=y
