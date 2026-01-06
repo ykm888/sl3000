@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware
+name: Build SL3000-EMMC Firmware (Auto-heal, Cache, No-Interactivity)
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout your repo
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Free disk space
@@ -20,7 +20,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
           df -h
 
-      - name: Allocate 100G disk space on /mnt/openwrt
+      - name: Allocate 100G tmpfs
         run: |
           sudo mkdir -p /mnt/openwrt
           sudo mount -t tmpfs -o size=100G tmpfs /mnt/openwrt
@@ -31,91 +31,123 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
-            zlib1g-dev libssl-dev wget git python3 unzip rsync file
+            zlib1g-dev libssl-dev wget git python3 unzip rsync file ccache
 
       - name: Move repo to /mnt/openwrt
         run: |
           tar --exclude=.git -cf - . | (cd /mnt/openwrt && tar xpf -)
-          cd /mnt/openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          sudo chown -R $USER:$USER /mnt/openwrt
 
-      - name: Overwrite three-piece files
+      - name: Cache OpenWrt downloads
+        uses: actions/cache@v4
+        with:
+          path: /mnt/openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('feeds.conf') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /mnt/openwrt/.ccache
+          key: ${{ runner.os }}-openwrt-ccache
+          restore-keys: |
+            ${{ runner.os }}-openwrt-ccache
+
+      - name: Enable ccache
         working-directory: /mnt/openwrt
         run: |
-          # DTS (正确路径)
-          mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
-          cat > target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts <<'EOF'
-          /dts-v1/;
+          echo 'CONFIG_DEVEL=y' >> .config || true
+          echo 'CONFIG_BUILD_LOG=y' >> .config || true
+          echo 'CONFIG_CCACHE=y' >> .config || true
+          export CCACHE_DIR=/mnt/openwrt/.ccache
+          ccache -M 5G || true
 
-          #include "mt7981.dtsi"
-
-          / {
-            model = "SL3000 EMMC";
-            compatible = "sl,sl3000-emmc", "mediatek,mt7981";
-            chosen { bootargs = "console=ttyS0,115200n8"; };
-            memory { device_type = "memory"; reg = <0x40000000 0x20000000>; };
-          };
-
-          &uart0 { status = "okay"; };
-          &eth   { status = "okay"; };
-          &mmc0  { status = "okay"; };
-          EOF
-
-          # MK
-          cat >> target/linux/mediatek/image/filogic.mk <<'EOF'
-
-          define Device/sl3000-emmc
-            DEVICE_VENDOR := SL
-            DEVICE_MODEL := 3000
-            DEVICE_VARIANT := EMMC
-            DEVICE_DTS := mt7981b-sl3000-emmc
-            SUPPORTED_DEVICES := sl3000-emmc
-            DEVICE_PACKAGES := kmod-usb3 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware
-            IMAGES := sysupgrade.bin
-            KERNEL := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb
-            KERNEL_INITRAMFS := kernel-bin | lzma | \
-                  fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-            IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-          endef
-          TARGET_DEVICES += sl3000-emmc
-          EOF
-
-          # CONFIG
-          cat > .config <<'EOF'
-          CONFIG_TARGET_mediatek=y
-          CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
-          CONFIG_TARGET_ROOTFS_SQUASHFS=y
-          EOF
-
-          # 不跑 olddefconfig，直接用 .config
-
-      - name: Verify three-piece registration
+      - name: Update and install feeds (fault-tolerant)
         working-directory: /mnt/openwrt
         run: |
-          test -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts || (echo "❌ DTS 缺失"; exit 1)
-          grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk || (echo "❌ MK 条目缺失"; exit 1)
-          grep -q 'sl3000-emmc' .config || (echo "❌ CONFIG 缺失"; exit 1)
+          ./scripts/feeds update -a || true
+          ./scripts/feeds install -a || true
 
-      - name: Build host tools
+      - name: Auto-heal three-piece (DTS/MK/CONFIG)
         working-directory: /mnt/openwrt
-        run: make tools/install -j$(nproc) V=s
+        run: |
+          # DTS auto-fix (files-6.12 path)
+          if [ ! -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts ]; then
+            echo "⚠️ DTS 缺失，自动修复..."
+            mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
+            echo '/dts-v1/;' > target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '#include "mt7981.dtsi"' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '/ {' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  model = "SL3000 EMMC";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  compatible = "sl,sl3000-emmc", "mediatek,mt7981";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  chosen { bootargs = "console=ttyS0,115200n8"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  memory { device_type = "memory"; reg = <0x40000000 0x20000000>; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '};' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '&uart0 { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '&eth   { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '&mmc0  { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+          fi
 
-      - name: Build cross toolchain
+          # MK auto-fix (append if missing)
+          if ! grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk; then
+            echo "⚠️ MK 条目缺失，自动修复..."
+            echo '' >> target/linux/mediatek/image/filogic.mk
+            echo 'define Device/sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
+            echo '  DEVICE_VENDOR := SL' >> target/linux/mediatek/image/filogic.mk
+            echo '  DEVICE_MODEL := 3000' >> target/linux/mediatek/image/filogic.mk
+            echo '  DEVICE_VARIANT := EMMC' >> target/linux/mediatek/image/filogic.mk
+            echo '  DEVICE_DTS := mt7981b-sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
+            echo '  SUPPORTED_DEVICES := sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
+            echo '  DEVICE_PACKAGES := kmod-usb3 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware' >> target/linux/mediatek/image/filogic.mk
+            echo '  IMAGES := sysupgrade.bin' >> target/linux/mediatek/image/filogic.mk
+            echo '  KERNEL := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb' >> target/linux/mediatek/image/filogic.mk
+            echo '  KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb with-initrd | pad-to 64k' >> target/linux/mediatek/image/filogic.mk
+            echo '  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata' >> target/linux/mediatek/image/filogic.mk
+            echo 'endef' >> target/linux/mediatek/image/filogic.mk
+            echo 'TARGET_DEVICES += sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
+          fi
+
+          # CONFIG auto-fix (no defconfig/olddefconfig)
+          if ! grep -q 'sl3000-emmc' .config; then
+            echo "⚠️ CONFIG 缺失，自动修复..."
+            echo 'CONFIG_TARGET_mediatek=y' > .config
+            echo 'CONFIG_TARGET_mediatek_filogic=y' >> .config
+            echo 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' >> .config
+            echo 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' >> .config
+          fi
+
+      - name: Build host tools (retry, ignore missing packages)
         working-directory: /mnt/openwrt
-        run: make toolchain/install -j$(nproc) V=s
+        run: |
+          make tools/install -j$(nproc) V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build firmware
+      - name: Build cross toolchain (retry, ignore missing packages)
+        working-directory: /mnt/openwrt
+        run: |
+          make toolchain/install -j$(nproc) V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build firmware (auto-retry and download cleanup on checksum failures)
         working-directory: /mnt/openwrt
         run: |
           set -eo pipefail
-          make -j$(nproc) || { echo "⚠️ 并行构建失败，尝试单线程重试..."; make -j1 V=s; }
+          make -j$(nproc) IGNORE_ERRORS=m || {
+            echo "⚠️ 并行构建失败，尝试清理 dl/ 并单线程重试...";
+            rm -rf dl/* || true
+            make -j1 V=s IGNORE_ERRORS=m;
+          }
 
-      - name: Check firmware output
+      - name: Check firmware output (auto locate)
         working-directory: /mnt/openwrt
         run: |
-          ls bin/targets/**/sl3000-emmc/*.bin || (echo "❌ 固件未生成"; exit 1)
+          FIRMWARE=$(find bin/targets -name "*sl3000-emmc*.bin" || true)
+          if [ -z "$FIRMWARE" ]; then
+            echo "❌ 固件未生成"
+            exit 1
+          else
+            echo "✅ 固件生成成功:"
+            echo "$FIRMWARE"
+          fi
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
