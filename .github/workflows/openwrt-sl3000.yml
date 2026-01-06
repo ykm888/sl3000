@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Auto-heal, Cache, Copy, Split-build, No-Menuconfig)
+name: Build SL3000-EMMC Firmware (Minimal Config, Auto-heal, Split-build)
 
 on:
   push:
@@ -68,18 +68,14 @@ jobs:
 
       - name: Copy three-piece from repo
         run: |
-          # DTS
           cp -f $GITHUB_WORKSPACE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
                 /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-
-          # MK
           cp -f $GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk \
                 /mnt/openwrt/target/linux/mediatek/image/filogic.mk
-
-          # CONFIG
           cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
+          sed -i '/^CONFIG_PACKAGE_onionshare-cli[ =]/d' /mnt/openwrt/.config
 
-      - name: Auto-heal three-piece (check and fix if missing)
+      - name: Auto-heal three-piece (sanity)
         working-directory: /mnt/openwrt
         run: |
           if [ ! -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts ]; then
@@ -92,26 +88,28 @@ jobs:
             echo '  compatible = "sl,sl3000-emmc", "mediatek,mt7981";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '};' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
           fi
-
           if ! grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk; then
-            echo "⚠️ MK 条目缺失，自动修复..."
             echo 'TARGET_DEVICES += sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
           fi
-
           if ! grep -q 'sl3000-emmc' .config; then
-            echo "⚠️ CONFIG 缺失，自动修复..."
             echo 'CONFIG_TARGET_mediatek=y' > .config
             echo 'CONFIG_TARGET_mediatek_filogic=y' >> .config
             echo 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' >> .config
             echo 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' >> .config
           fi
 
-      # 分阶段构建，避免 world 一次性挂掉
-      - name: Build host tools
+      - name: Generate noninteractive config (defconfig)
+        working-directory: /mnt/openwrt
+        run: |
+          export TERM=xterm
+          unset KCONFIG_NOSILENTUPDATE
+          make defconfig V=s
+
+      - name: Build tools
         working-directory: /mnt/openwrt
         run: make tools/install -j2 V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build cross toolchain
+      - name: Build toolchain
         working-directory: /mnt/openwrt
         run: make toolchain/install -j2 V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
 
@@ -123,14 +121,13 @@ jobs:
         working-directory: /mnt/openwrt
         run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build firmware (final stage, auto-retry and download cleanup)
+      - name: Build firmware (final stage)
         working-directory: /mnt/openwrt
         run: |
-          set -eo pipefail
-          make -j2 IGNORE_ERRORS=m || {
-            echo "⚠️ 并行构建失败，清理 dl/ 并单线程重试..."
+          make -j2 V=s IGNORE_ERRORS=m || {
+            echo "⚠️ 并行失败，清理 dl/ 并单线程重试..."
             rm -rf dl/* || true
-            make -j1 V=s IGNORE_ERRORS=m;
+            make -j1 V=s IGNORE_ERRORS=m
           }
 
       - name: Check firmware output
