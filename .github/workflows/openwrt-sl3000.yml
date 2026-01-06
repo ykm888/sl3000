@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Fix Kernel Dependency, Auto-heal, Split-build)
+name: Build SL3000-EMMC Firmware (Stable ext4 mount)
 
 on:
   push:
@@ -20,10 +20,12 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
           df -h
 
-      - name: Allocate 100G tmpfs
+      - name: Allocate 100G ext4 image
         run: |
           sudo mkdir -p /mnt/openwrt
-          sudo mount -t tmpfs -o size=100G tmpfs /mnt/openwrt
+          sudo fallocate -l 100G /mnt/openwrt.img
+          sudo mkfs.ext4 /mnt/openwrt.img
+          sudo mount -o loop /mnt/openwrt.img /mnt/openwrt
           sudo chown -R $USER:$USER /mnt/openwrt
           df -h /mnt/openwrt
 
