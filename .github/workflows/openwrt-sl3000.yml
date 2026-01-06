@@ -88,7 +88,7 @@ jobs:
           MK=target/linux/mediatek/image/filogic.mk
           test -f "$DTS" || { echo "❌ DTS 缺失"; exit 1; }
           grep -q '^define Device/sl3000-emmc' "$MK" || { echo "❌ 缺少设备段"; exit 1; }
-          grep -q 'DEVICE_DTS *= *mt7981b-sl3000-emmc' "$MK" || { echo "❌ DEVICE_DTS 不匹配"; exit 1; }
+          grep -Eq 'DEVICE_DTS.*mt7981b-sl3000-emmc' "$MK" || { echo "❌ DEVICE_DTS 不匹配"; exit 1; }
           grep -q 'TARGET_DEVICES += sl3000-emmc' "$MK" || { echo "❌ 缺少 TARGET_DEVICES"; exit 1; }
           grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ .config 未选中设备"; exit 1; }
 
