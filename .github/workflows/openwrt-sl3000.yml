@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Auto-heal, Cache, No-Interactivity)
+name: Build SL3000-EMMC Firmware (Auto-heal, Cache, Copy, Split-build)
 
 on:
   push:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Move repo to /mnt/openwrt
         run: |
-          tar --exclude=.git -cf - . | (cd /mnt/openwrt && tar xpf -)
+          rsync -a --exclude='.git' ./ /mnt/openwrt/
           sudo chown -R $USER:$USER /mnt/openwrt
 
       - name: Cache OpenWrt downloads
@@ -57,9 +57,6 @@ jobs:
       - name: Enable ccache
         working-directory: /mnt/openwrt
         run: |
-          echo 'CONFIG_DEVEL=y' >> .config || true
-          echo 'CONFIG_BUILD_LOG=y' >> .config || true
-          echo 'CONFIG_CCACHE=y' >> .config || true
           export CCACHE_DIR=/mnt/openwrt/.ccache
           ccache -M 5G || true
 
@@ -69,10 +66,22 @@ jobs:
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a || true
 
-      - name: Auto-heal three-piece (DTS/MK/CONFIG)
+      - name: Copy three-piece from repo
+        run: |
+          # DTS
+          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+                /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+
+          # MK
+          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk \
+                /mnt/openwrt/target/linux/mediatek/image/filogic.mk
+
+          # CONFIG
+          cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
+
+      - name: Auto-heal three-piece (check and fix if missing)
         working-directory: /mnt/openwrt
         run: |
-          # DTS auto-fix (files-6.12 path)
           if [ ! -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts ]; then
             echo "⚠️ DTS 缺失，自动修复..."
             mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
@@ -81,34 +90,14 @@ jobs:
             echo '/ {' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '  model = "SL3000 EMMC";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '  compatible = "sl,sl3000-emmc", "mediatek,mt7981";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '  chosen { bootargs = "console=ttyS0,115200n8"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '  memory { device_type = "memory"; reg = <0x40000000 0x20000000>; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '};' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '&uart0 { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '&eth   { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '&mmc0  { status = "okay"; };' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
           fi
 
-          # MK auto-fix (append if missing)
           if ! grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk; then
             echo "⚠️ MK 条目缺失，自动修复..."
-            echo '' >> target/linux/mediatek/image/filogic.mk
-            echo 'define Device/sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
-            echo '  DEVICE_VENDOR := SL' >> target/linux/mediatek/image/filogic.mk
-            echo '  DEVICE_MODEL := 3000' >> target/linux/mediatek/image/filogic.mk
-            echo '  DEVICE_VARIANT := EMMC' >> target/linux/mediatek/image/filogic.mk
-            echo '  DEVICE_DTS := mt7981b-sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
-            echo '  SUPPORTED_DEVICES := sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
-            echo '  DEVICE_PACKAGES := kmod-usb3 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware' >> target/linux/mediatek/image/filogic.mk
-            echo '  IMAGES := sysupgrade.bin' >> target/linux/mediatek/image/filogic.mk
-            echo '  KERNEL := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb' >> target/linux/mediatek/image/filogic.mk
-            echo '  KERNEL_INITRAMFS := kernel-bin | lzma | fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb with-initrd | pad-to 64k' >> target/linux/mediatek/image/filogic.mk
-            echo '  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata' >> target/linux/mediatek/image/filogic.mk
-            echo 'endef' >> target/linux/mediatek/image/filogic.mk
             echo 'TARGET_DEVICES += sl3000-emmc' >> target/linux/mediatek/image/filogic.mk
           fi
 
-          # CONFIG auto-fix (no defconfig/olddefconfig)
           if ! grep -q 'sl3000-emmc' .config; then
             echo "⚠️ CONFIG 缺失，自动修复..."
             echo 'CONFIG_TARGET_mediatek=y' > .config
@@ -117,27 +106,34 @@ jobs:
             echo 'CONFIG_TARGET_ROOTFS_SQUASHFS=y' >> .config
           fi
 
-      - name: Build host tools (retry, ignore missing packages)
+      # 分阶段构建，避免 world 一次性挂掉
+      - name: Build host tools
         working-directory: /mnt/openwrt
-        run: |
-          make tools/install -j$(nproc) V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
+        run: make tools/install -j2 V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build cross toolchain (retry, ignore missing packages)
+      - name: Build cross toolchain
         working-directory: /mnt/openwrt
-        run: |
-          make toolchain/install -j$(nproc) V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
+        run: make toolchain/install -j2 V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build firmware (auto-retry and download cleanup on checksum failures)
+      - name: Build packages
+        working-directory: /mnt/openwrt
+        run: make package/compile -j2 V=s IGNORE_ERRORS=m || make package/compile -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build target
+        working-directory: /mnt/openwrt
+        run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build firmware (final stage, auto-retry and download cleanup)
         working-directory: /mnt/openwrt
         run: |
           set -eo pipefail
-          make -j$(nproc) IGNORE_ERRORS=m || {
-            echo "⚠️ 并行构建失败，尝试清理 dl/ 并单线程重试...";
+          make -j2 IGNORE_ERRORS=m || {
+            echo "⚠️ 并行构建失败，清理 dl/ 并单线程重试..."
             rm -rf dl/* || true
             make -j1 V=s IGNORE_ERRORS=m;
           }
 
-      - name: Check firmware output (auto locate)
+      - name: Check firmware output
         working-directory: /mnt/openwrt
         run: |
           FIRMWARE=$(find bin/targets -name "*sl3000-emmc*.bin" || true)
