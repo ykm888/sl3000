@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Stable ext4 mount + Strict Three-Piece Check)
+name: Build SL3000-EMMC Firmware (Stable ext4 + Hardened semantic check)
 
 on:
   push:
@@ -80,17 +80,51 @@ jobs:
                 /mnt/openwrt/target/linux/mediatek/image/filogic.mk
           cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
 
-      - name: Strict verify three-piece before defconfig
+      - name: Hardened semantic check (three-piece before defconfig)
         working-directory: /mnt/openwrt
         run: |
-          set -e
+          set -euo pipefail
           DTS=target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
           MK=target/linux/mediatek/image/filogic.mk
-          test -f "$DTS" || { echo "❌ DTS 缺失"; exit 1; }
-          grep -q '^define Device/sl3000-emmc' "$MK" || { echo "❌ 缺少设备段"; exit 1; }
-          grep -Eq 'DEVICE_DTS.*mt7981b-sl3000-emmc' "$MK" || { echo "❌ DEVICE_DTS 不匹配"; exit 1; }
-          grep -q 'TARGET_DEVICES += sl3000-emmc' "$MK" || { echo "❌ 缺少 TARGET_DEVICES"; exit 1; }
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ .config 未选中设备"; exit 1; }
+
+          # 1) DTS exists
+          test -f "$DTS" || { echo "❌ DTS 缺失: $DTS"; exit 1; }
+
+          # 2) Extract device block and verify within block
+          awk -v start="define Device/sl3000-emmc" -v end="endef" '
+            $0 ~ start {inblk=1}
+            inblk {print}
+            $0 ~ end && inblk {inblk=0}
+          ' "$MK" > .device_block.txt || true
+
+          if ! grep -q '^define Device/sl3000-emmc' .device_block.txt; then
+            echo "❌ 设备段缺失: define Device/sl3000-emmc"
+            echo "—— 设备段诊断输出 ——"
+            sed -n '1,120p' .device_block.txt || true
+            exit 1
+          fi
+
+          # 3) DEVICE_DTS check inside block (support = or :=, ignore spaces)
+          if ! grep -Eq '^[[:space:]]*DEVICE_DTS[[:space:]]*[:=][[:space:]]*mt7981b-sl3000-emmc' .device_block.txt; then
+            echo "❌ DEVICE_DTS 不匹配（设备段内）"
+            echo "—— 设备段诊断输出 ——"
+            cat .device_block.txt
+            exit 1
+          fi
+
+          # 4) TARGET_DEVICES global presence
+          grep -q 'TARGET_DEVICES += sl3000-emmc' "$MK" || {
+            echo "❌ 缺少 TARGET_DEVICES += sl3000-emmc（全局）"
+            exit 1
+          }
+
+          # 5) .config selected
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || {
+            echo "❌ .config 未选中设备"
+            exit 1
+          }
+
+          echo "✅ 语义校验通过：设备段、DTS、TARGET_DEVICES、.config 均正确"
 
       - name: Generate noninteractive config (defconfig)
         working-directory: /mnt/openwrt
@@ -98,7 +132,11 @@ jobs:
           export TERM=xterm
           unset KCONFIG_NOSILENTUPDATE
           make defconfig V=s
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ defconfig 后设备丢失"; exit 1; }
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || {
+            echo "❌ defconfig 后设备丢失"
+            exit 1
+          }
+          echo "✅ defconfig 后设备仍然保留"
 
       - name: Build tools
         working-directory: /mnt/openwrt
@@ -131,6 +169,8 @@ jobs:
           FIRMWARE=$(find bin/targets -name "*sl3000-emmc*.bin" || true)
           if [ -z "$FIRMWARE" ]; then
             echo "❌ 固件未生成"
+            echo "—— 目录结构诊断 ——"
+            find bin/targets -maxdepth 3 -type d -print || true
             exit 1
           else
             echo "✅ 固件生成成功:"
