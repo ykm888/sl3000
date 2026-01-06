@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Stable ext4 mount + Three-Piece Test)
+name: Build SL3000-EMMC Firmware (Stable ext4 mount + Strict Three-Piece Check)
 
 on:
   push:
@@ -8,53 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-three-piece:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Verify three-piece registration
-        run: |
-          echo "🔍 检查 .config 是否包含 sl3000-emmc..."
-          if grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config; then
-            echo "✅ .config 已选中 sl3000-emmc"
-          else
-            echo "❌ .config 未选中 sl3000-emmc"
-            exit 1
-          fi
-
-          echo "🔍 检查 DTS 文件是否存在..."
-          if [ -f target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts ]; then
-            echo "✅ DTS 文件存在"
-          else
-            echo "❌ DTS 文件缺失"
-            exit 1
-          fi
-
-          echo "🔍 检查 filogic.mk 是否有完整条目..."
-          if grep -q 'Device/sl3000-emmc' target/linux/mediatek/image/filogic.mk; then
-            echo "✅ filogic.mk 已注册 sl3000-emmc"
-          else
-            echo "❌ filogic.mk 未注册 sl3000-emmc"
-            exit 1
-          fi
-
-          echo "🔍 运行 make defconfig 展开配置..."
-          sudo apt-get update && sudo apt-get install -y build-essential flex bison gawk libncurses5-dev
-          make defconfig || true
-          if grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config; then
-            echo "✅ defconfig 后仍然保留 sl3000-emmc"
-          else
-            echo "❌ defconfig 后丢失 sl3000-emmc"
-            exit 1
-          fi
-
-          echo "🎯 三件套检查完成"
-
   build:
     runs-on: ubuntu-22.04
-    needs: test-three-piece
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -77,4 +33,116 @@ jobs:
           sudo chown -R $USER:$USER /mnt/openwrt
           df -h /mnt/openwrt
 
-      # 后续步骤保持不变：环境安装、feeds 容错、三件套复制、自愈、defconfig、分阶段构建、固件检测与上传
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
+            zlib1g-dev libssl-dev wget git python3 unzip rsync file ccache
+
+      - name: Move repo to /mnt/openwrt
+        run: |
+          rsync -a --exclude='.git' ./ /mnt/openwrt/
+          sudo chown -R $USER:$USER /mnt/openwrt
+
+      - name: Cache OpenWrt downloads
+        uses: actions/cache@v4
+        with:
+          path: /mnt/openwrt/dl
+          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('feeds.conf') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-dl-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /mnt/openwrt/.ccache
+          key: ${{ runner.os }}-openwrt-ccache
+          restore-keys: |
+            ${{ runner.os }}-openwrt-ccache
+
+      - name: Enable ccache
+        working-directory: /mnt/openwrt
+        run: |
+          export CCACHE_DIR=/mnt/openwrt/.ccache
+          ccache -M 5G || true
+
+      - name: Update and install feeds (fault-tolerant)
+        working-directory: /mnt/openwrt
+        run: |
+          ./scripts/feeds update -a || true
+          ./scripts/feeds install -a || true
+
+      - name: Copy three-piece from repo
+        run: |
+          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+                /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk \
+                /mnt/openwrt/target/linux/mediatek/image/filogic.mk
+          cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
+
+      - name: Strict verify three-piece before defconfig
+        working-directory: /mnt/openwrt
+        run: |
+          set -e
+          DTS=target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+          MK=target/linux/mediatek/image/filogic.mk
+          test -f "$DTS" || { echo "❌ DTS 缺失"; exit 1; }
+          grep -q '^define Device/sl3000-emmc' "$MK" || { echo "❌ 缺少设备段"; exit 1; }
+          grep -q 'DEVICE_DTS *= *mt7981b-sl3000-emmc' "$MK" || { echo "❌ DEVICE_DTS 不匹配"; exit 1; }
+          grep -q 'TARGET_DEVICES += sl3000-emmc' "$MK" || { echo "❌ 缺少 TARGET_DEVICES"; exit 1; }
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ .config 未选中设备"; exit 1; }
+
+      - name: Generate noninteractive config (defconfig)
+        working-directory: /mnt/openwrt
+        run: |
+          export TERM=xterm
+          unset KCONFIG_NOSILENTUPDATE
+          make defconfig V=s
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ defconfig 后设备丢失"; exit 1; }
+
+      - name: Build tools
+        working-directory: /mnt/openwrt
+        run: make tools/install -j2 V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build toolchain
+        working-directory: /mnt/openwrt
+        run: make toolchain/install -j2 V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build target
+        working-directory: /mnt/openwrt
+        run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build packages
+        working-directory: /mnt/openwrt
+        run: make package/compile -j2 V=s IGNORE_ERRORS=m || make package/compile -j1 V=s IGNORE_ERRORS=m
+
+      - name: Build firmware (final stage)
+        working-directory: /mnt/openwrt
+        run: |
+          make -j2 V=s IGNORE_ERRORS=m || {
+            echo "⚠️ 并行失败，清理 dl/ 并单线程重试..."
+            rm -rf dl/* || true
+            make -j1 V=s IGNORE_ERRORS=m
+          }
+
+      - name: Check firmware output
+        working-directory: /mnt/openwrt
+        run: |
+          FIRMWARE=$(find bin/targets -name "*sl3000-emmc*.bin" || true)
+          if [ -z "$FIRMWARE" ]; then
+            echo "❌ 固件未生成"
+            exit 1
+          else
+            echo "✅ 固件生成成功:"
+            echo "$FIRMWARE"
+          fi
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-emmc-firmware
+          path: |
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.bin
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
+            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
