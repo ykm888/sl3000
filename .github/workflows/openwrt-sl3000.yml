@@ -20,10 +20,15 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
           df -h
 
-      - name: Allocate 100G ext4 image
+      - name: Allocate ext4 image dynamically
         run: |
           sudo mkdir -p /mnt/openwrt
-          sudo fallocate -l 100G /mnt/openwrt.img
+          # 检测剩余空间，分配 20G 或最大可用的 80%
+          FREE=$(df -m --output=avail / | tail -1)
+          SIZE=$((FREE*80/100))
+          if [ $SIZE -gt 20000 ]; then SIZE=20000; fi
+          echo "Allocating $SIZE MB ext4 image..."
+          sudo fallocate -l ${SIZE}M /mnt/openwrt.img
           sudo mkfs.ext4 /mnt/openwrt.img
           sudo mount -o loop /mnt/openwrt.img /mnt/openwrt
           sudo chown -R $USER:$USER /mnt/openwrt
@@ -84,10 +89,10 @@ jobs:
             echo "⚠️ DTS 缺失，自动修复..."
             mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
             echo '/dts-v1/;' > target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '#include "mt7981.dtsi"' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '#include \"mt7981.dtsi\"' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '/ {' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '  model = "SL3000 EMMC";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-            echo '  compatible = "sl,sl3000-emmc", "mediatek,mt7981";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  model = \"SL3000 EMMC\";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+            echo '  compatible = \"sl,sl3000-emmc\", \"mediatek,mt7981\";' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             echo '};' >> target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
           fi
           if ! grep -q 'sl3000-emmc' target/linux/mediatek/image/filogic.mk; then
