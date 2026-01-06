@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Auto-heal, Cache, Copy, Split-build)
+name: Build SL3000-EMMC Firmware (Auto-heal, Cache, Copy, Split-build, No-Menuconfig)
 
 on:
   push:
