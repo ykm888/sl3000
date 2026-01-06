@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Minimal Config, Auto-heal, Split-build)
+name: Build SL3000-EMMC Firmware (Fix Kernel Dependency, Auto-heal, Split-build)
 
 on:
   push:
@@ -113,13 +113,13 @@ jobs:
         working-directory: /mnt/openwrt
         run: make toolchain/install -j2 V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
 
+      - name: Build target (ensure kernel prepared)
+        working-directory: /mnt/openwrt
+        run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
+
       - name: Build packages
         working-directory: /mnt/openwrt
         run: make package/compile -j2 V=s IGNORE_ERRORS=m || make package/compile -j1 V=s IGNORE_ERRORS=m
-
-      - name: Build target
-        working-directory: /mnt/openwrt
-        run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
 
       - name: Build firmware (final stage)
         working-directory: /mnt/openwrt
