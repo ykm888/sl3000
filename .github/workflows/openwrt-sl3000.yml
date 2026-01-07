@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Optimized Disk Workflow)
+name: Build SL3000-EMMC Firmware (Optimized /mnt workflow)
 
 on:
   push:
@@ -20,13 +20,13 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
           df -h
 
-      - name: Allocate ext4 image dynamically
+      - name: Allocate ext4 image on /mnt
         run: |
           sudo mkdir -p /mnt/openwrt
-          FREE=$(df -m --output=avail / | tail -1)
+          FREE=$(df -m --output=avail /mnt | tail -1)
           SIZE=$((FREE*80/100))
-          if [ $SIZE -gt 25000 ]; then SIZE=25000; fi
-          echo "Allocating $SIZE MB ext4 image..."
+          if [ $SIZE -gt 60000 ]; then SIZE=60000; fi
+          echo "Allocating $SIZE MB ext4 image on /mnt..."
           sudo fallocate -l ${SIZE}M /mnt/openwrt.img
           sudo mkfs.ext4 /mnt/openwrt.img
           sudo mount -o loop /mnt/openwrt.img /mnt/openwrt
