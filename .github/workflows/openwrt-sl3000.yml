@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04   # ⭐ 修复 m4/flex 崩溃的关键
+    runs-on: ubuntu-24.04
 
     env:
       BUILD_DIR: ${{ github.workspace }}
@@ -48,7 +48,7 @@ jobs:
             libncurses5-dev libssl-dev python3 python3-distutils \
             rsync unzip wget git zlib1g-dev file m4
 
-      - name: Force rebuild host toolchain   # ⭐ 修复 m4/flex 崩溃的关键
+      - name: Force rebuild host toolchain
         run: |
           rm -rf staging_dir/host
           rm -rf build_dir/host
@@ -86,24 +86,24 @@ jobs:
             echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
           }
 
-      - name: mk integrity auto repair and check   # ⭐ 修复 mk 缺失 Device 块
+      - name: mk integrity auto repair and check
         run: |
           if ! grep -q "define Device/${PROFILE}" "${MK_PATH}"; then
             echo "⚠️ mk 缺少 define Device/${PROFILE}，自动追加"
 
-            cat >> "${MK_PATH}" << 'EOF'
-
-define Device/sl3000-emmc
-  DEVICE_TITLE := SL3000 EMMC
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
-  IMAGE_SIZE := 256m
-  DEVICE_PACKAGES := \
-    kmod-mediatek_hnat kmod-mediatek_wed kmod-mediatek_wed_mcu
-endef
-TARGET_DEVICES += sl3000-emmc
-
-EOF
+            {
+              echo ""
+              echo "define Device/sl3000-emmc"
+              echo "  DEVICE_TITLE := SL3000 EMMC"
+              echo "  DEVICE_DTS := mt7981b-sl3000-emmc"
+              echo "  DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek"
+              echo "  IMAGE_SIZE := 256m"
+              echo "  DEVICE_PACKAGES := \\"
+              echo "    kmod-mediatek_hnat kmod-mediatek_wed kmod-mediatek_wed_mcu"
+              echo "endef"
+              echo "TARGET_DEVICES += sl3000-emmc"
+              echo ""
+            } >> "${MK_PATH}"
           fi
 
           grep -q "define Device/${PROFILE}" "${MK_PATH}" || {
