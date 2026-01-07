@@ -54,7 +54,15 @@ jobs:
 
       - name: Patch auto check
         run: |
-          find target/linux/mediatek/patches-* -name '*.patch' \
+          PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
+
+          if [ -z "$PATCH_DIRS" ]; then
+            echo "ℹ️ 无补丁目录，跳过 patch 检查"
+            exit 0
+          fi
+
+          echo "ℹ️ 检查补丁是否能干净应用..."
+          find $PATCH_DIRS -name '*.patch' \
             -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \; || {
               echo "❌ 补丁未能完全贴合"
               exit 1
