@@ -56,12 +56,10 @@ jobs:
       - name: Patch auto check
         run: |
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
-
           if [ -z "$PATCH_DIRS" ]; then
             echo "ℹ️ 无补丁目录，跳过 patch 检查"
             exit 0
           fi
-
           echo "ℹ️ 检查补丁是否能干净应用..."
           find $PATCH_DIRS -name '*.patch' \
             -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \; || {
@@ -73,7 +71,6 @@ jobs:
         run: |
           if [ ! -f "${DTS_PATH}" ]; then
             echo "⚠️ DTS missing, restoring"
-            # 这里的模板路径按你仓库实际位置调整
             cp dts/mt7981b-sl3000-emmc.dts "${DTS_PATH}" || exit 1
           fi
 
@@ -94,16 +91,11 @@ jobs:
 
       - name: .config auto repair
         run: |
-          if [ -f .config ]; then
-            cp .config .config.bak
-          fi
-
-          # 目标与设备
+          if [ -f .config ]; then cp .config .config.bak; fi
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
-
           # 禁用所有非路由器驱动
           echo "# CONFIG_SOUND is not set" >> .config
           echo "# CONFIG_SND is not set" >> .config
@@ -127,7 +119,6 @@ jobs:
           echo "# CONFIG_PACKAGE_kmod-e1000 is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-e1000e is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ixgbe is not set" >> .config
-
           make defconfig
 
       - name: DTS compile check
@@ -142,10 +133,7 @@ jobs:
       - name: Build firmware with auto-repair
         run: |
           set -e
-          build_once() {
-            make -j"$(nproc)" V=s
-          }
-
+          build_once() { make -j"$(nproc)" V=s; }
           if ! build_once; then
             echo "⚠️ 构建失败，清理 build_dir 重试"
             rm -rf build_dir
@@ -158,14 +146,8 @@ jobs:
 
       - name: Verify firmware output
         run: |
-          ls -lh "${TARGET_DIR}" || {
-            echo "❌ 固件目录不存在：${TARGET_DIR}"
-            exit 1
-          }
-          test -s ${TARGET_DIR}/*.bin || {
-            echo "❌ 固件未生成或为空"
-            exit 1
-          }
+          ls -lh "${TARGET_DIR}" || { echo "❌ 固件目录不存在"; exit 1; }
+          test -s ${TARGET_DIR}/*.bin || { echo "❌ 固件未生成或为空"; exit 1; }
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
