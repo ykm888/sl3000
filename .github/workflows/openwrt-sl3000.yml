@@ -2,9 +2,6 @@ name: Build SL3000-EMMC Firmware
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-  pull_request:
 
 jobs:
   build:
