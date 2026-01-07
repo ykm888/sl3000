@@ -1,7 +1,7 @@
 name: Build SL3000-EMMC Firmware
 
 on:
-  workflow_dispatch:   # 手动运行按钮
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
@@ -10,17 +10,17 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      BUILD_DIR: /mnt/openwrt
-      TARGET_DIR: /mnt/openwrt/bin/targets/mediatek/filogic
-      DTS_PATH: /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-      MK_PATH: /mnt/openwrt/target/linux/mediatek/image/filogic.mk
+      BUILD_DIR: /home/runner/work/openwrt
+      TARGET_DIR: /home/runner/work/openwrt/bin/targets/mediatek/filogic
+      DTS_PATH: /home/runner/work/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+      MK_PATH: /home/runner/work/openwrt/target/linux/mediatek/image/filogic.mk
       PROFILE: sl3000-emmc
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Move source to /mnt (66G space)
+      - name: Move source to large disk (60GB)
         run: |
           mkdir -p $BUILD_DIR
           rsync -a ./ $BUILD_DIR/
@@ -55,8 +55,8 @@ jobs:
         run: |
           cd $BUILD_DIR
           test -f .config || (echo "❌ .config missing" && exit 1)
-          test -f "${DTS_PATH}" || (echo "❌ DTS missing at ${DTS_PATH}" && exit 1)
-          grep -q "${PROFILE}" "${MK_PATH}" || (echo "❌ mk missing profile ${PROFILE}" && exit 1)
+          test -f "${DTS_PATH}" || (echo "❌ DTS missing" && exit 1)
+          grep -q "${PROFILE}" "${MK_PATH}" || (echo "❌ mk missing profile" && exit 1)
 
       - name: Ensure profile registered in mk
         run: |
@@ -77,16 +77,15 @@ jobs:
           } >> .config
           grep -v 'CONFIG_TARGET_mediatek_filogic_DEVICE_' .config.backup >> .config
           make defconfig
-          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config || true
 
       - name: Build firmware with auto-repair
         run: |
           cd $BUILD_DIR
           make -j$(nproc) V=s || (
-            echo "⚠️ 构建失败，清理 build_dir 重试一次"
+            echo "⚠️ 构建失败，清理 build_dir 重试"
             rm -rf build_dir
             make -j$(nproc) V=s || (
-              echo "⚠️ 二次构建失败，清理 dl+tmp 再试"
+              echo "⚠️ 二次失败，清理 dl+tmp 再试"
               rm -rf dl build_dir tmp
               make -j$(nproc) V=s
             )
