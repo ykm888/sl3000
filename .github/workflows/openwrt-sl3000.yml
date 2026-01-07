@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Optimized /mnt workflow)
+name: Build SL3000-EMMC Firmware (Stable + Git Version Fix)
 
 on:
   push:
@@ -39,10 +39,18 @@ jobs:
           sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
             zlib1g-dev libssl-dev wget git python3 unzip rsync file ccache
 
-      - name: Move repo to /mnt/openwrt
+      - name: Move repo to /mnt/openwrt (preserve .git)
         run: |
-          rsync -a --exclude='.git' ./ /mnt/openwrt/
+          rsync -a "$GITHUB_WORKSPACE"/ /mnt/openwrt/
           sudo chown -R $USER:$USER /mnt/openwrt
+          test -d /mnt/openwrt/.git || { echo "❌ .git 缺失，版本号将不可用"; exit 1; }
+
+      - name: Verify OpenWrt version metadata
+        working-directory: /mnt/openwrt
+        run: |
+          git rev-parse --short HEAD || { echo "❌ Git 不可用或非仓库目录"; exit 1; }
+          ./scripts/getver.sh || true
+          sed -n '1,120p' include/version.mk | grep -E 'VERSION_NUMBER|VERSION_CODE|VERSION_REPO' || true
 
       - name: Cache OpenWrt downloads
         uses: actions/cache@v4
@@ -160,3 +168,10 @@ jobs:
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
             /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: /mnt/openwrt/logs/**/*
