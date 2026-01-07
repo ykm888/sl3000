@@ -1,4 +1,4 @@
-name: Build SL3000-EMMC Firmware (Stable ext4 + Artifact-driven verification)
+name: Build SL3000-EMMC Firmware (Optimized Disk Workflow)
 
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           sudo mkdir -p /mnt/openwrt
           FREE=$(df -m --output=avail / | tail -1)
           SIZE=$((FREE*80/100))
-          if [ $SIZE -gt 20000 ]; then SIZE=20000; fi
+          if [ $SIZE -gt 25000 ]; then SIZE=25000; fi
           echo "Allocating $SIZE MB ext4 image..."
           sudo fallocate -l ${SIZE}M /mnt/openwrt.img
           sudo mkfs.ext4 /mnt/openwrt.img
@@ -66,7 +66,7 @@ jobs:
           export CCACHE_DIR=/mnt/openwrt/.ccache
           ccache -M 5G || true
 
-      - name: Update and install feeds (fault-tolerant)
+      - name: Update and install feeds
         working-directory: /mnt/openwrt
         run: |
           ./scripts/feeds update -a || true
@@ -80,7 +80,7 @@ jobs:
                 /mnt/openwrt/target/linux/mediatek/image/filogic.mk
           cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
 
-      - name: Minimal semantic check (slice + presence)
+      - name: Minimal semantic check
         working-directory: /mnt/openwrt
         run: |
           set -euo pipefail
@@ -89,71 +89,61 @@ jobs:
 
           test -f "$DTS" || { echo "❌ DTS 缺失: $DTS"; exit 1; }
           sed -n '/^define Device\/sl3000-emmc/,/endef/p' "$MK" > .device_block.txt || true
-          if ! grep -q '^define Device/sl3000-emmc' .device_block.txt; then
-            echo "❌ 设备段缺失: define Device/sl3000-emmc"; exit 1
-          fi
+          grep -q '^define Device/sl3000-emmc' .device_block.txt || { echo "❌ 设备段缺失"; exit 1; }
+          grep -Fq "mt7981b-sl3000-emmc" .device_block.txt || { echo "❌ DTS 名称不匹配"; exit 1; }
+          grep -Fq "sl3000-emmc" "$MK" || { echo "❌ 缺少 TARGET_DEVICES"; exit 1; }
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ .config 未选中设备"; exit 1; }
+          echo "✅ 校验通过"
 
-          # 只做存在性判断，避免格式差异误判；失败时打印诊断
-          if ! grep -Fq "DEVICE_DTS" .device_block.txt; then
-            echo "❌ 设备段内未发现 DEVICE_DTS"; cat .device_block.txt; exit 1
-          fi
-          if ! grep -Fq "mt7981b-sl3000-emmc" .device_block.txt; then
-            echo "❌ 设备段内未发现期望 DTS 名称 mt7981b-sl3000-emmc"; cat .device_block.txt; exit 1
-          fi
-          if ! grep -Fq "sl3000-emmc" "$MK"; then
-            echo "❌ 全局未发现 sl3000-emmc 引用（检查 TARGET_DEVICES）"; exit 1
-          fi
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || {
-            echo "❌ .config 未选中设备"; exit 1
-          }
-          echo "✅ 设备段存在且包含期望 DTS 名称与 TARGET_DEVICES"
-
-      - name: Generate noninteractive config (defconfig)
+      - name: Generate defconfig
         working-directory: /mnt/openwrt
         run: |
-          export TERM=xterm
-          unset KCONFIG_NOSILENTUPDATE
           make defconfig V=s
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || {
-            echo "❌ defconfig 后设备丢失"; exit 1
-          }
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ defconfig 后设备丢失"; exit 1; }
           echo "✅ defconfig 后设备仍然保留"
+          df -h /mnt/openwrt
 
       - name: Build tools
         working-directory: /mnt/openwrt
-        run: make tools/install -j2 V=s IGNORE_ERRORS=m || make tools/install -j1 V=s IGNORE_ERRORS=m
+        run: make tools/install -j2 V=s || make tools/install -j1 V=s
+      - name: Check space after tools
+        run: df -h /mnt/openwrt
 
       - name: Build toolchain
         working-directory: /mnt/openwrt
-        run: make toolchain/install -j2 V=s IGNORE_ERRORS=m || make toolchain/install -j1 V=s IGNORE_ERRORS=m
+        run: make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
+      - name: Check space after toolchain
+        run: df -h /mnt/openwrt
 
       - name: Build target
         working-directory: /mnt/openwrt
-        run: make target/compile -j2 V=s IGNORE_ERRORS=m || make target/compile -j1 V=s IGNORE_ERRORS=m
+        run: make target/compile -j2 V=s || make target/compile -j1 V=s
+      - name: Check space after target
+        run: df -h /mnt/openwrt
 
       - name: Build packages
         working-directory: /mnt/openwrt
-        run: make package/compile -j2 V=s IGNORE_ERRORS=m || make package/compile -j1 V=s IGNORE_ERRORS=m
+        run: make package/compile -j2 V=s || make package/compile -j1 V=s
+      - name: Check space after packages
+        run: df -h /mnt/openwrt
 
-      - name: Build firmware (final stage)
+      - name: Build firmware
         working-directory: /mnt/openwrt
         run: |
-          make -j2 V=s IGNORE_ERRORS=m || {
-            echo "⚠️ 并行失败，清理 dl/ 并单线程重试..."
+          make -j2 V=s || {
+            echo "⚠️ 并行失败，单线程重试..."
             rm -rf dl/* || true
-            make -j1 V=s IGNORE_ERRORS=m
+            make -j1 V=s
           }
+      - name: Check space after firmware
+        run: df -h /mnt/openwrt
 
-      - name: Check firmware output (artifact-driven)
+      - name: Check firmware output
         working-directory: /mnt/openwrt
         run: |
-          set -e
-          echo "🔎 列出 targets 目录结构（便于诊断）"
-          find bin/targets -maxdepth 3 -type d -print || true
           FIRMWARE=$(find bin/targets -type f -name "*sl3000-emmc*sysupgrade*.bin" -o -name "*sl3000-emmc*.bin" || true)
           if [ -z "$FIRMWARE" ]; then
-            echo "❌ 未发现包含 sl3000-emmc 的固件产物"
-            echo "—— 可选诊断：列出所有生成的 bin 文件 ——"
+            echo "❌ 未发现固件产物"
             find bin/targets -type f -name "*.bin" -print || true
             exit 1
           else
