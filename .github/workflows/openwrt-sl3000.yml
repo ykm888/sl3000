@@ -9,21 +9,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     env:
-      BUILD_DIR: /home/runner/work/openwrt
-      TARGET_DIR: /home/runner/work/openwrt/bin/targets/mediatek/filogic
-      DTS_PATH: /home/runner/work/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-      MK_PATH: /home/runner/work/openwrt/target/linux/mediatek/image/filogic.mk
+      BUILD_DIR: ${{ github.workspace }}
       PROFILE: sl3000-emmc
+      DTS_PATH: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+      MK_PATH: target/linux/mediatek/image/filogic.mk
+      TARGET_DIR: bin/targets/mediatek/filogic
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Move source to large disk (60GB)
+      # 可选：确认真实构建目录
+      - name: Print workspace info
         run: |
-          mkdir -p $BUILD_DIR
-          rsync -a ./ $BUILD_DIR/
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "BUILD_DIR: $BUILD_DIR"
+          df -h
 
       - name: Free disk space
         run: |
@@ -31,14 +34,15 @@ jobs:
           sudo apt-get clean || true
           docker system prune -af || true
           sudo rm -rf /var/lib/apt/lists/* || true
+          df -h
 
       - name: Cache dl and build_dir
         uses: actions/cache@v4
         with:
           path: |
-            $BUILD_DIR/dl
-            $BUILD_DIR/build_dir
-          key: ${{ runner.os }}-openwrt-${{ github.ref }}-${{ hashFiles('feeds.conf','package/**/*','target/**/*','toolchain/**/*','tools/**/*','.config') }}
+            ${{ env.BUILD_DIR }}/dl
+            ${{ env.BUILD_DIR }}/build_dir
+          key: ${{ runner.os }}-openwrt-${{ github.ref }}-${{ hashFiles('feeds.conf','**/*.mk','**/*.dts','.config') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-${{ github.ref }}-
             ${{ runner.os }}-openwrt-
@@ -51,41 +55,68 @@ jobs:
             libncurses5-dev libssl-dev python3 python3-distutils \
             rsync unzip wget git zlib1g-dev file
 
-      - name: Verify three-piece set
+      # 三件套检测 + 自动修复（mk / .config 级别）
+      - name: Verify and auto-repair three-piece set
         run: |
-          cd $BUILD_DIR
-          test -f .config || (echo "❌ .config missing" && exit 1)
-          test -f "${DTS_PATH}" || (echo "❌ DTS missing" && exit 1)
-          grep -q "${PROFILE}" "${MK_PATH}" || (echo "❌ mk missing profile" && exit 1)
+          cd "$BUILD_DIR"
 
-      - name: Ensure profile registered in mk
-        run: |
-          cd $BUILD_DIR
-          if ! grep -q "TARGET_DEVICES += ${PROFILE}" "${MK_PATH}"; then
-            echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
+          echo "==> 检查 .config 是否存在"
+          if [ ! -f .config ]; then
+            echo "❌ .config missing"
+            exit 1
           fi
 
-      - name: Prepare .config
+          echo "==> 检查 DTS 是否存在: ${DTS_PATH}"
+          if [ ! -f "${DTS_PATH}" ]; then
+            echo "❌ DTS missing at ${DTS_PATH}"
+            exit 1
+          fi
+
+          echo "==> 检查 mk 是否包含 profile: ${PROFILE}"
+          if ! grep -q "${PROFILE}" "${MK_PATH}"; then
+            echo "⚠️ mk 中缺少 profile ${PROFILE}，自动追加 TARGET_DEVICES"
+            echo "" >> "${MK_PATH}"
+            echo "# Auto-added by CI for ${PROFILE}" >> "${MK_PATH}"
+            echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
+          else
+            echo "✅ mk 已包含 profile ${PROFILE}"
+          fi
+
+      # 自动修复 .config 中的设备选择，并保持你原来的逻辑
+      - name: Prepare .config for ${PROFILE}
         run: |
-          cd $BUILD_DIR
+          cd "$BUILD_DIR"
+          echo "==> 备份当前 .config 到 .config.backup"
           cp .config .config.backup
+
+          echo "==> 清理旧的 CONFIG_TARGET_mediatek_filogic_DEVICE_ 配置"
           sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_/d' .config
+
+          echo "==> 写入 ${PROFILE} 设备选择"
           {
             echo "CONFIG_TARGET_mediatek=y"
             echo "CONFIG_TARGET_mediatek_filogic=y"
             echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y"
           } >> .config
+
+          echo "==> 重新合并原有其他配置"
           grep -v 'CONFIG_TARGET_mediatek_filogic_DEVICE_' .config.backup >> .config
+
+          echo "==> 运行 make defconfig，同步内核/新选项"
           make defconfig
+
+          echo "==> 当前设备相关配置："
+          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config || true
 
       - name: Build firmware with auto-repair
         run: |
-          cd $BUILD_DIR
+          cd "$BUILD_DIR"
+          echo "==> 开始首次构建"
           make -j$(nproc) V=s || (
-            echo "⚠️ 构建失败，清理 build_dir 重试"
+            echo "⚠️ 首次构建失败，清理 build_dir 后重试一次"
             rm -rf build_dir
             make -j$(nproc) V=s || (
-              echo "⚠️ 二次失败，清理 dl+tmp 再试"
+              echo "⚠️ 二次构建仍然失败，清理 dl + build_dir + tmp 后最后再试一次"
               rm -rf dl build_dir tmp
               make -j$(nproc) V=s
             )
@@ -95,21 +126,28 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ${PROFILE}-firmware
-          path: ${{ env.TARGET_DIR }}/*
+          name: sl3000-emmc-firmware
+          path: ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/*
 
       - name: Publish GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.TARGET_DIR }}/*
-          tag_name: ${PROFILE}-${{ github.run_number }}
-          name: ${PROFILE} Firmware Build ${{ github.run_number }}
+          files: ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/*
+          tag_name: sl3000-emmc-${{ github.run_number }}
+          name: SL3000-EMMC Firmware Build ${{ github.run_number }}
+          body: |
+            Automated build for ${PROFILE}
+            - Repo: ${{ github.repository }}
+            - Run:  ${{ github.run_number }}
+            - Commit: ${{ github.sha }}
 
       - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: $BUILD_DIR/logs/
+          path: |
+            ${{ env.BUILD_DIR }}/logs/
+            ${{ env.BUILD_DIR }}/build_dir/
           if-no-files-found: warn
