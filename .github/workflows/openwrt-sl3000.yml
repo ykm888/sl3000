@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04   # ⭐ 关键修复：使用 20.04，避免 m4 崩溃
 
     env:
       BUILD_DIR: ${{ github.workspace }}
@@ -46,7 +46,12 @@ jobs:
           sudo apt-get install -y \
             build-essential flex bison gawk gettext \
             libncurses5-dev libssl-dev python3 python3-distutils \
-            rsync unzip wget git zlib1g-dev file
+            rsync unzip wget git zlib1g-dev file m4
+
+      - name: Force rebuild host toolchain   # ⭐ 关键修复：重建 host 工具链
+        run: |
+          rm -rf staging_dir/host
+          rm -rf build_dir/host
 
       - name: Feeds auto repair
         run: |
@@ -77,7 +82,6 @@ jobs:
       - name: mk auto repair
         run: |
           grep -q "${PROFILE}" "${MK_PATH}" || {
-            echo "⚠️ mk missing profile, auto-adding"
             echo "" >> "${MK_PATH}"
             echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
           }
@@ -96,6 +100,7 @@ jobs:
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
+
           # 禁用所有非路由器驱动
           echo "# CONFIG_SOUND is not set" >> .config
           echo "# CONFIG_SND is not set" >> .config
@@ -119,6 +124,7 @@ jobs:
           echo "# CONFIG_PACKAGE_kmod-e1000 is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-e1000e is not set" >> .config
           echo "# CONFIG_PACKAGE_kmod-ixgbe is not set" >> .config
+
           make defconfig
 
       - name: DTS compile check
