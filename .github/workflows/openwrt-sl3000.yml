@@ -28,12 +28,13 @@ jobs:
           docker system prune -af || true
           df -h
 
-      - name: Cache dl and build_dir
+      - name: Cache dl, build_dir, staging_dir
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.BUILD_DIR }}/dl
             ${{ env.BUILD_DIR }}/build_dir
+            ${{ env.BUILD_DIR }}/staging_dir
           key: ${{ runner.os }}-openwrt-${{ github.ref }}-${{ hashFiles('feeds.conf','**/*.mk','**/*.dts','.config') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-${{ github.ref }}-
@@ -72,6 +73,7 @@ jobs:
         run: |
           if [ ! -f "${DTS_PATH}" ]; then
             echo "⚠️ DTS missing, restoring"
+            # 这里的模板路径按你仓库实际位置调整
             cp dts/mt7981b-sl3000-emmc.dts "${DTS_PATH}" || exit 1
           fi
 
@@ -79,7 +81,8 @@ jobs:
         run: |
           grep -q "${PROFILE}" "${MK_PATH}" || {
             echo "⚠️ mk missing profile, auto-adding"
-            echo -e "\nTARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
+            echo "" >> "${MK_PATH}"
+            echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
           }
 
       - name: mk integrity check
@@ -91,8 +94,12 @@ jobs:
 
       - name: .config auto repair
         run: |
-          cp .config .config.bak
-          sed -i '/CONFIG_TARGET_/d' .config
+          if [ -f .config ]; then
+            cp .config .config.bak
+          fi
+
+          # 目标与设备
+          sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
@@ -125,7 +132,7 @@ jobs:
 
       - name: DTS compile check
         run: |
-          make target/linux/compile -j$(nproc) V=s
+          make target/linux/compile -j"$(nproc)" V=s
           find build_dir/target-*/linux-*/arch/arm64/boot/dts/mediatek/ \
             -name '*sl3000-emmc.dtb' | grep -q . || {
               echo "❌ DTS 未被编译为 dtb"
@@ -134,19 +141,27 @@ jobs:
 
       - name: Build firmware with auto-repair
         run: |
-          make -j$(nproc) V=s || {
+          set -e
+          build_once() {
+            make -j"$(nproc)" V=s
+          }
+
+          if ! build_once; then
             echo "⚠️ 构建失败，清理 build_dir 重试"
             rm -rf build_dir
-            make -j$(nproc) V=s || {
-              echo "⚠️ 再次失败，清理 dl + build_dir + tmp 再试"
-              rm -rf dl build_dir tmp
-              make -j$(nproc) V=s
-            }
-          }
+            if ! build_once; then
+              echo "⚠️ 再次失败，清理 dl + build_dir + staging_dir + tmp 再试"
+              rm -rf dl build_dir staging_dir tmp
+              build_once
+            fi
+          fi
 
       - name: Verify firmware output
         run: |
-          ls -lh ${TARGET_DIR}
+          ls -lh "${TARGET_DIR}" || {
+            echo "❌ 固件目录不存在：${TARGET_DIR}"
+            exit 1
+          }
           test -s ${TARGET_DIR}/*.bin || {
             echo "❌ 固件未生成或为空"
             exit 1
@@ -178,3 +193,4 @@ jobs:
           path: |
             logs/
             build_dir/
+            staging_dir/
