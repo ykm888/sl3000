@@ -54,19 +54,17 @@ jobs:
 
       - name: Patch auto check
         run: |
-          find target/linux/mediatek/patches-* -name '*.patch' -exec patch -p1 --dry-run -f < {} \; || {
-            echo "❌ Patch failed to apply cleanly"
-            exit 1
-          }
+          find target/linux/mediatek/patches-* -name '*.patch' \
+            -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \; || {
+              echo "❌ 补丁未能完全贴合"
+              exit 1
+            }
 
       - name: DTS auto repair
         run: |
           if [ ! -f "${DTS_PATH}" ]; then
-            echo "⚠️ DTS missing, attempting to restore from template"
-            cp dts/mt7981b-sl3000-emmc.dts "${DTS_PATH}" || {
-              echo "❌ DTS restore failed"
-              exit 1
-            }
+            echo "⚠️ DTS missing, restoring"
+            cp dts/mt7981b-sl3000-emmc.dts "${DTS_PATH}" || exit 1
           fi
 
       - name: mk auto repair
@@ -91,7 +89,7 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
 
-          # 禁用非路由器驱动（纯 echo 写入）
+          # 禁用所有非路由器驱动
           echo "# CONFIG_SOUND is not set" >> .config
           echo "# CONFIG_SND is not set" >> .config
           echo "# CONFIG_DRM is not set" >> .config
@@ -120,10 +118,11 @@ jobs:
       - name: DTS compile check
         run: |
           make target/linux/compile -j$(nproc) V=s
-          find build_dir/target-*/linux-*/arch/arm64/boot/dts/mediatek/ -name '*sl3000-emmc.dtb' | grep -q . || {
-            echo "❌ DTS 未被编译为 dtb"
-            exit 1
-          }
+          find build_dir/target-*/linux-*/arch/arm64/boot/dts/mediatek/ \
+            -name '*sl3000-emmc.dtb' | grep -q . || {
+              echo "❌ DTS 未被编译为 dtb"
+              exit 1
+            }
 
       - name: Build firmware with auto-repair
         run: |
