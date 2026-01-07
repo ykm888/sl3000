@@ -1,177 +1,71 @@
-name: Build SL3000-EMMC Firmware (Stable + Git Version Fix)
+name: Build SL3000-EMMC Firmware
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout repo
+      - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
-          df -h
-
-      - name: Allocate ext4 image on /mnt
-        run: |
-          sudo mkdir -p /mnt/openwrt
-          FREE=$(df -m --output=avail /mnt | tail -1)
-          SIZE=$((FREE*80/100))
-          if [ $SIZE -gt 60000 ]; then SIZE=60000; fi
-          echo "Allocating $SIZE MB ext4 image on /mnt..."
-          sudo fallocate -l ${SIZE}M /mnt/openwrt.img
-          sudo mkfs.ext4 /mnt/openwrt.img
-          sudo mount -o loop /mnt/openwrt.img /mnt/openwrt
-          sudo chown -R $USER:$USER /mnt/openwrt
-          df -h /mnt/openwrt
 
       - name: Setup build environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison gawk libncurses5-dev libncursesw5-dev \
-            zlib1g-dev libssl-dev wget git python3 unzip rsync file ccache
+          sudo apt-get install -y build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 python3-distutils rsync unzip wget
 
-      - name: Move repo to /mnt/openwrt (preserve .git)
+      - name: Sync source to /mnt/openwrt
         run: |
-          rsync -a "$GITHUB_WORKSPACE"/ /mnt/openwrt/
-          sudo chown -R $USER:$USER /mnt/openwrt
-          test -d /mnt/openwrt/.git || { echo "❌ .git 缺失，版本号将不可用"; exit 1; }
+          mkdir -p /mnt/openwrt
+          rsync -a ./ /mnt/openwrt/
 
-      - name: Verify OpenWrt version metadata
-        working-directory: /mnt/openwrt
+      - name: Prepare .config
         run: |
-          git rev-parse --short HEAD || { echo "❌ Git 不可用或非仓库目录"; exit 1; }
-          ./scripts/getver.sh || true
-          sed -n '1,120p' include/version.mk | grep -E 'VERSION_NUMBER|VERSION_CODE|VERSION_REPO' || true
+          cd /mnt/openwrt
+          # 清理所有 filogic 设备配置
+          sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_/d' .config
+          # 强制只启用 SL3000-EMMC
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
+          make defconfig
 
-      - name: Cache OpenWrt downloads
-        uses: actions/cache@v4
-        with:
-          path: /mnt/openwrt/dl
-          key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('feeds.conf') }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-dl-
-
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: /mnt/openwrt/.ccache
-          key: ${{ runner.os }}-openwrt-ccache
-          restore-keys: |
-            ${{ runner.os }}-openwrt-ccache
-
-      - name: Enable ccache
-        working-directory: /mnt/openwrt
+      - name: Verify config
         run: |
-          export CCACHE_DIR=/mnt/openwrt/.ccache
-          ccache -M 5G || true
-
-      - name: Update and install feeds
-        working-directory: /mnt/openwrt
-        run: |
-          ./scripts/feeds update -a || true
-          ./scripts/feeds install -a || true
-
-      - name: Copy three-piece from repo
-        run: |
-          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
-                /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-          cp -f $GITHUB_WORKSPACE/target/linux/mediatek/image/filogic.mk \
-                /mnt/openwrt/target/linux/mediatek/image/filogic.mk
-          cp -f $GITHUB_WORKSPACE/.config /mnt/openwrt/.config
-
-      - name: Minimal semantic check
-        working-directory: /mnt/openwrt
-        run: |
-          set -euo pipefail
-          MK=target/linux/mediatek/image/filogic.mk
-          DTS=target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-
-          test -f "$DTS" || { echo "❌ DTS 缺失: $DTS"; exit 1; }
-          sed -n '/^define Device\/sl3000-emmc/,/endef/p' "$MK" > .device_block.txt || true
-          grep -q '^define Device/sl3000-emmc' .device_block.txt || { echo "❌ 设备段缺失"; exit 1; }
-          grep -Fq "mt7981b-sl3000-emmc" .device_block.txt || { echo "❌ DTS 名称不匹配"; exit 1; }
-          grep -Fq "sl3000-emmc" "$MK" || { echo "❌ 缺少 TARGET_DEVICES"; exit 1; }
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ .config 未选中设备"; exit 1; }
-          echo "✅ 校验通过"
-
-      - name: Generate defconfig
-        working-directory: /mnt/openwrt
-        run: |
-          make defconfig V=s
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y' .config || { echo "❌ defconfig 后设备丢失"; exit 1; }
-          echo "✅ defconfig 后设备仍然保留"
-          df -h /mnt/openwrt
-
-      - name: Build tools
-        working-directory: /mnt/openwrt
-        run: make tools/install -j2 V=s || make tools/install -j1 V=s
-      - name: Check space after tools
-        run: df -h /mnt/openwrt
-
-      - name: Build toolchain
-        working-directory: /mnt/openwrt
-        run: make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
-      - name: Check space after toolchain
-        run: df -h /mnt/openwrt
-
-      - name: Build target
-        working-directory: /mnt/openwrt
-        run: make target/compile -j2 V=s || make target/compile -j1 V=s
-      - name: Check space after target
-        run: df -h /mnt/openwrt
-
-      - name: Build packages
-        working-directory: /mnt/openwrt
-        run: make package/compile -j2 V=s || make package/compile -j1 V=s
-      - name: Check space after packages
-        run: df -h /mnt/openwrt
-
-      - name: Build firmware
-        working-directory: /mnt/openwrt
-        run: |
-          make -j2 V=s || {
-            echo "⚠️ 并行失败，单线程重试..."
-            rm -rf dl/* || true
-            make -j1 V=s
-          }
-      - name: Check space after firmware
-        run: df -h /mnt/openwrt
-
-      - name: Check firmware output
-        working-directory: /mnt/openwrt
-        run: |
-          FIRMWARE=$(find bin/targets -type f -name "*sl3000-emmc*sysupgrade*.bin" -o -name "*sl3000-emmc*.bin" || true)
-          if [ -z "$FIRMWARE" ]; then
-            echo "❌ 未发现固件产物"
-            find bin/targets -type f -name "*.bin" -print || true
+          cd /mnt/openwrt
+          echo "=== 当前启用的设备 ==="
+          grep CONFIG_TARGET_mediatek_filogic_DEVICE .config
+          echo "====================="
+          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
+            echo "❌ SL3000-EMMC 未启用，构建中止"
             exit 1
-          else
-            echo "✅ 固件生成成功:"
-            echo "$FIRMWARE"
           fi
 
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sl3000-emmc-firmware
-          path: |
-            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.bin
-            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.manifest
-            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.buildinfo
-            /mnt/openwrt/bin/targets/**/sl3000-emmc/*.json
+      - name: Build firmware
+        run: |
+          cd /mnt/openwrt
+          make -j$(nproc) V=s
 
-      - name: Upload logs on failure
+      - name: Upload build logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: /mnt/openwrt/logs/**/*
+          path: |
+            /mnt/openwrt/build_dir/**/log.txt
+            /mnt/openwrt/build_dir/**/error.txt
+            /mnt/openwrt/tmp/**/*
+          if-no-files-found: warn
+
+      - name: Upload firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-emmc-firmware
+          path: /mnt/openwrt/bin/targets/mediatek/filogic/*
