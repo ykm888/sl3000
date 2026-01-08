@@ -8,10 +8,9 @@ jobs:
     runs-on: ubuntu-24.04
 
     env:
-      BUILD_DIR: ${{ github.workspace }}
       PROFILE: sl3000-emmc
-      DTS_PATH: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-      MK_PATH: target/linux/mediatek/image/filogic.mk
+      DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+      MK_FILE: target/linux/mediatek/image/filogic.mk
       TARGET_DIR: bin/targets/mediatek/filogic
 
     steps:
@@ -29,9 +28,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.BUILD_DIR }}/dl
-            ${{ env.BUILD_DIR }}/build_dir
-            ${{ env.BUILD_DIR }}/staging_dir
+            dl
+            build_dir
+            staging_dir
           key: ${{ runner.os }}-openwrt-${{ github.ref }}-${{ hashFiles('feeds.conf','**/*.mk','**/*.dts','.config') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-${{ github.ref }}-
@@ -54,13 +53,61 @@ jobs:
 
       - name: Feeds auto repair
         run: |
-          ./scripts/feeds update -a || { echo "❌ feeds update failed"; exit 1; }
-          ./scripts/feeds install -a || { echo "❌ feeds install failed"; exit 1; }
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: Build tools and toolchain
         run: |
           make tools/install -j"$(nproc)" V=s
           make toolchain/install -j"$(nproc)" V=s
+
+      - name: Auto-align DTS / mk / profile (三件套自动对齐)
+        run: |
+          echo "=== 自动对齐 DTS / mk / profile 三件套 ==="
+
+          if [ ! -f "$DTS_FILE" ]; then
+            echo "❌ DTS 文件不存在：$DTS_FILE"
+            exit 1
+          fi
+
+          DEVICE_DTS=$(basename "$DTS_FILE" .dts)
+          DTB_NAME="$DEVICE_DTS.dtb"
+
+          echo "📌 DEVICE_DTS = $DEVICE_DTS"
+          echo "📌 推导出的 dtb 名字 = $DTB_NAME"
+
+          # 修复 mk 文件
+          if ! grep -q "define Device/${PROFILE}" "$MK_FILE"; then
+            echo "⚠️ mk 缺少 Device/${PROFILE}，自动追加"
+            {
+              echo ""
+              echo "define Device/${PROFILE}"
+              echo "  DEVICE_TITLE := SL3000 EMMC"
+              echo "  DEVICE_DTS := ${DEVICE_DTS}"
+              echo "  DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek"
+              echo "  IMAGE_SIZE := 256m"
+              echo "  DEVICE_PACKAGES := \\"
+              echo "    kmod-mediatek_hnat kmod-mediatek_wed kmod-mediatek_wed_mcu"
+              echo "endef"
+              echo "TARGET_DEVICES += ${PROFILE}"
+              echo ""
+            } >> "$MK_FILE"
+          fi
+
+          sed -i "s/DEVICE_DTS := .*/DEVICE_DTS := ${DEVICE_DTS}/" "$MK_FILE"
+          sed -i "s|DEVICE_DTS_DIR := .*|DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek|" "$MK_FILE"
+
+          echo "📌 mk 已对齐 DEVICE_DTS = $DEVICE_DTS"
+
+          # 修复 .config
+          sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
+
+          make defconfig
+
+          echo "🎉 DTS / mk / profile 三件套已完全对齐"
 
       - name: Patch auto check
         run: |
@@ -71,95 +118,23 @@ jobs:
           fi
           echo "ℹ️ 检查补丁是否能干净应用..."
           find $PATCH_DIRS -name '*.patch' \
-            -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \; || {
-              echo "❌ 补丁未能完全贴合"
-              exit 1
-            }
+            -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
 
-      - name: DTS auto repair
-        run: |
-          if [ ! -f "${DTS_PATH}" ]; then
-            echo "⚠️ DTS missing, restoring"
-            cp dts/mt7981b-sl3000-emmc.dts "${DTS_PATH}" || exit 1
-          fi
-
-      - name: mk auto repair
-        run: |
-          grep -q "${PROFILE}" "${MK_PATH}" || {
-            echo "" >> "${MK_PATH}"
-            echo "TARGET_DEVICES += ${PROFILE}" >> "${MK_PATH}"
-          }
-
-      - name: mk integrity auto repair and check
-        run: |
-          if ! grep -q "define Device/${PROFILE}" "${MK_PATH}"; then
-            echo "⚠️ mk 缺少 define Device/${PROFILE}，自动追加"
-
-            {
-              echo ""
-              echo "define Device/sl3000-emmc"
-              echo "  DEVICE_TITLE := SL3000 EMMC"
-              echo "  DEVICE_DTS := mt7981b-sl3000-emmc"
-              echo "  DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek"
-              echo "  IMAGE_SIZE := 256m"
-              echo "  DEVICE_PACKAGES := \\"
-              echo "    kmod-mediatek_hnat kmod-mediatek_wed kmod-mediatek_wed_mcu"
-              echo "endef"
-              echo "TARGET_DEVICES += sl3000-emmc"
-              echo ""
-            } >> "${MK_PATH}"
-          fi
-
-          grep -q "define Device/${PROFILE}" "${MK_PATH}" || {
-            echo "❌ mk 自动修复后仍然缺少 define Device/${PROFILE}"
-            exit 1
-          }
-
-      - name: .config auto repair
-        run: |
-          if [ -f .config ]; then cp .config .config.bak; fi
-          sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
-
-          # 禁用所有非路由器驱动
-          echo "# CONFIG_SOUND is not set" >> .config
-          echo "# CONFIG_SND is not set" >> .config
-          echo "# CONFIG_DRM is not set" >> .config
-          echo "# CONFIG_MEDIA_SUPPORT is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-video-core is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-printer is not set" >> .config
-          echo "# CONFIG_PACKAGE_p910nd is not set" >> .config
-          echo "# CONFIG_BT is not set" >> .config
-          echo "# CONFIG_USB_SUPPORT is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-core is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb2 is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb3 is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-ohci is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-uhci is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-storage is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-net is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-usb-audio is not set" >> .config
-          echo "# CONFIG_X86 is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-i2c-i801 is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-e1000 is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-e1000e is not set" >> .config
-          echo "# CONFIG_PACKAGE_kmod-ixgbe is not set" >> .config
-
-          make defconfig
-
-      - name: DTS compile check
+      - name: DTS compile check + dtb auto-detect
         run: |
           make target/linux/compile -j"$(nproc)" V=s
 
-          DTB_PATH=$(find build_dir -name '*sl3000-emmc*.dtb' 2>/dev/null | head -n 1 || true)
-          if [ -z "${DTB_PATH}" ]; then
-            echo "❌ DTS 未被编译为 dtb（未找到 *sl3000-emmc*.dtb）"
+          echo "=== 搜索所有 dtb 文件 ==="
+          find build_dir -type f -name "*.dtb" || true
+
+          DTB_PATH=$(find build_dir -type f -name "*.dtb" | grep -i "sl3000" | head -n 1 || true)
+
+          if [ -z "$DTB_PATH" ]; then
+            echo "❌ DTS 已编译，但未找到 sl3000 相关 dtb"
             exit 1
           fi
 
-          echo "✅ DTS 已编译为 dtb: ${DTB_PATH}"
+          echo "✅ DTS 已编译为 dtb: $DTB_PATH"
 
       - name: Build firmware with auto-repair
         run: |
@@ -177,8 +152,8 @@ jobs:
 
       - name: Verify firmware output
         run: |
-          ls -lh "${TARGET_DIR}" || { echo "❌ 固件目录不存在"; exit 1; }
-          test -s ${TARGET_DIR}/*.bin || { echo "❌ 固件未生成或为空"; exit 1; }
+          ls -lh "$TARGET_DIR"
+          test -s ${TARGET_DIR}/*.bin
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
@@ -194,8 +169,8 @@ jobs:
           name: SL3000-EMMC Build ${{ github.run_number }}
           body: |
             - Profile: sl3000-emmc
-            - DTS: ${{ env.DTS_PATH }}
-            - mk:  ${{ env.MK_PATH }}
+            - DTS: ${{ env.DTS_FILE }}
+            - mk:  ${{ env.MK_FILE }}
             - Commit: ${{ github.sha }}
 
       - name: Upload logs on failure
