@@ -9,7 +9,9 @@ jobs:
 
     env:
       PROFILE: sl3000-emmc
+      DTS_NAME: mt7981b-sl3000-emmc
       DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+      DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
       MK_FILE: target/linux/mediatek/image/filogic.mk
       TARGET_DIR: bin/targets/mediatek/filogic
 
@@ -44,12 +46,9 @@ jobs:
             libncurses5-dev libssl-dev python3 \
             rsync unzip wget git zlib1g-dev file m4
 
-      - name: Force rebuild host toolchain (host + hostpkg)
+      - name: Force rebuild host toolchain
         run: |
-          rm -rf staging_dir/host
-          rm -rf staging_dir/hostpkg
-          rm -rf build_dir/host
-          rm -rf build_dir/hostpkg
+          rm -rf staging_dir/host staging_dir/hostpkg build_dir/host build_dir/hostpkg
 
       - name: Feeds auto repair
         run: |
@@ -61,7 +60,22 @@ jobs:
           make tools/install -j"$(nproc)" V=s
           make toolchain/install -j"$(nproc)" V=s
 
-      - name: Auto-align DTS / mk / profile (三件套自动对齐)
+      - name: Auto-create DTS Makefile if missing
+        run: |
+          if [ ! -f "$DTS_MK" ]; then
+            echo "⚠️ DTS Makefile 不存在，自动创建"
+            mkdir -p "$(dirname "$DTS_MK")"
+            echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" > "$DTS_MK"
+          fi
+
+          if ! grep -q "${DTS_NAME}.dtb" "$DTS_MK"; then
+            echo "⚠️ DTS Makefile 缺少 sl3000 dtb 注册，自动追加"
+            echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" >> "$DTS_MK"
+          fi
+
+          echo "📌 DTS Makefile 已对齐"
+
+      - name: Auto-align DTS / mk / profile
         run: |
           echo "=== 自动对齐 DTS / mk / profile 三件套 ==="
 
@@ -70,34 +84,11 @@ jobs:
             exit 1
           fi
 
-          DEVICE_DTS=$(basename "$DTS_FILE" .dts)
-          DTB_NAME="$DEVICE_DTS.dtb"
+          DEVICE_DTS="${DTS_NAME}"
 
-          echo "📌 DEVICE_DTS = $DEVICE_DTS"
-          echo "📌 推导出的 dtb 名字 = $DTB_NAME"
-
-          # 修复 mk 文件
-          if ! grep -q "define Device/${PROFILE}" "$MK_FILE"; then
-            echo "⚠️ mk 缺少 Device/${PROFILE}，自动追加"
-            {
-              echo ""
-              echo "define Device/${PROFILE}"
-              echo "  DEVICE_TITLE := SL3000 EMMC"
-              echo "  DEVICE_DTS := ${DEVICE_DTS}"
-              echo "  DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek"
-              echo "  IMAGE_SIZE := 256m"
-              echo "  DEVICE_PACKAGES := \\"
-              echo "    kmod-mediatek_hnat kmod-mediatek_wed kmod-mediatek_wed_mcu"
-              echo "endef"
-              echo "TARGET_DEVICES += ${PROFILE}"
-              echo ""
-            } >> "$MK_FILE"
-          fi
-
-          sed -i "s/DEVICE_DTS := .*/DEVICE_DTS := ${DEVICE_DTS}/" "$MK_FILE"
-          sed -i "s|DEVICE_DTS_DIR := .*|DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek|" "$MK_FILE"
-
-          echo "📌 mk 已对齐 DEVICE_DTS = $DEVICE_DTS"
+          # 修复 mk
+          sed -i "s|DEVICE_DTS :=.*|DEVICE_DTS := ${DEVICE_DTS}|" "$MK_FILE"
+          sed -i "s|DEVICE_DTS_DIR :=.*|DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek|" "$MK_FILE"
 
           # 修复 .config
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
@@ -107,7 +98,7 @@ jobs:
 
           make defconfig
 
-          echo "🎉 DTS / mk / profile 三件套已完全对齐"
+          echo "🎉 三件套已完全对齐"
 
       - name: Patch auto check
         run: |
@@ -127,7 +118,7 @@ jobs:
           echo "=== 搜索所有 dtb 文件 ==="
           find build_dir -type f -name "*.dtb" || true
 
-          DTB_PATH=$(find build_dir -type f -name "*.dtb" | grep -i "sl3000" | head -n 1 || true)
+          DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
 
           if [ -z "$DTB_PATH" ]; then
             echo "❌ DTS 已编译，但未找到 sl3000 相关 dtb"
@@ -170,7 +161,7 @@ jobs:
           body: |
             - Profile: sl3000-emmc
             - DTS: ${{ env.DTS_FILE }}
-            - mk:  ${{ env.MK_FILE }}
+            - DTS Makefile: ${{ env.DTS_MK }}
             - Commit: ${{ github.sha }}
 
       - name: Upload logs on failure
