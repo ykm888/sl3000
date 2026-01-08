@@ -1,0 +1,12 @@
+- name: DTS compile check
+  run: |
+    make target/linux/compile -j"$(nproc)" V=s
+
+    DTB_PATH=$(find build_dir -type f -name "*sl3000-emmc*.dtb" | head -n 1 || true)
+
+    if [ -z "$DTB_PATH" ]; then
+      echo "❌ DTS 未被编译为 dtb（未找到 sl3000-emmc dtb）"
+      exit 1
+    fi
+
+    echo "✅ DTS 已编译为 dtb: $DTB_PATH"
