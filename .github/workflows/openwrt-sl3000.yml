@@ -57,6 +57,11 @@ jobs:
           ./scripts/feeds update -a || { echo "❌ feeds update failed"; exit 1; }
           ./scripts/feeds install -a || { echo "❌ feeds install failed"; exit 1; }
 
+      - name: Build tools and toolchain
+        run: |
+          make tools/install -j"$(nproc)" V=s
+          make toolchain/install -j"$(nproc)" V=s
+
       - name: Patch auto check
         run: |
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
