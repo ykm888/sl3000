@@ -4,9 +4,9 @@
  */
 
 /dts-v1/;
+#include "mt7981b-rfb.dts"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include "mt7981b.dtsi"
 
 / {
     model = "SL-3000 (EMMC)";
@@ -23,11 +23,6 @@
     chosen {
         stdout-path = "serial0:115200n8";
         bootargs-append = " root=/dev/fit0 rootwait";
-    };
-
-    memory@40000000 {
-        reg = <0 0x40000000 0 0x20000000>;
-        device_type = "memory";
     };
 
     leds {
