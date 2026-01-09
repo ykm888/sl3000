@@ -3,10 +3,10 @@
  * SL-3000 EMMC Board DTS
  */
 
- /dts-v1/;
+/dts-v1/;
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 / {
     model = "SL-3000 (EMMC)";
@@ -116,7 +116,11 @@
                 label = "cpu";
                 ethernet = <&gmac0>;
                 phy-mode = "2500base-x";
-                fixed-link { speed = <2500>; full-duplex; pause; };
+                fixed-link {
+                    speed = <2500>;
+                    full-duplex;
+                    pause;
+                };
             };
         };
     };
