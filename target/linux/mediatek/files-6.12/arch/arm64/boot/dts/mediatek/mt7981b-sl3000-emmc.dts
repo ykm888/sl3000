@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
 /*
  * SL-3000 EMMC Board DTS
  */
@@ -63,7 +63,7 @@
 
         mesh {
             label = "mesh";
-            linux,code = <KEY_MESH>;
+            linux,code = <KEY_WPS_BUTTON>;
             gpios = <&pio 0 GPIO_ACTIVE_LOW>;
         };
     };
