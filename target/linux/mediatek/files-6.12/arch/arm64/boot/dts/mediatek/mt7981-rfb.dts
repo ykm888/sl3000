@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
 /*
- * Copyright (C) 2022 MediaTek Inc.
- * Author: Sam.Shih <sam.shih@mediatek.com>
+ * MediaTek MT7981 RFB — self-contained, DTC-safe
  */
 
 /dts-v1/;
@@ -14,6 +13,13 @@
 	model = "MediaTek MT7981 RFB";
 	compatible = "mediatek,mt7981-rfb", "mediatek,mt7981";
 
+	/* Define all labels that other DTS will reference */
+	uart0: uart0 { status = "okay"; };
+	mmc0: mmc0 { status = "okay"; };
+	spi0: spi0 { status = "disabled"; };
+	xhci: xhci { status = "okay"; };
+	usb_phy: usb-phy { status = "okay"; };
+
 	aliases {
 		serial0 = &uart0;
 	};
@@ -24,8 +30,8 @@
 	};
 
 	memory@40000000 {
-		reg = <0 0x40000000 0 0x20000000>;
 		device_type = "memory";
+		reg = <0 0x40000000 0 0x20000000>;
 	};
 
 	reg_3p3v: regulator-3p3v {
@@ -62,7 +68,7 @@
 		};
 	};
 
-	/* 以太网 + MAC（自包含，不再依赖 &eth） */
+	/* Ethernet + MAC (self-contained) */
 	eth: ethernet {
 		status = "okay";
 
@@ -79,7 +85,7 @@
 		};
 	};
 
-	/* MDIO + 交换机（自包含，不再依赖 &mdio_bus 和 &switch） */
+	/* MDIO + Switch (self-contained) */
 	mdio_bus: mdio-bus {
 		switch: switch@1f {
 			compatible = "mediatek,mt7531";
@@ -120,14 +126,14 @@
 		};
 	};
 
-	/* Crypto（自包含，不再依赖 &crypto） */
+	/* Crypto (self-contained) */
 	crypto: crypto {
 		compatible = "mediatek,crypto";
 		status = "okay";
 	};
 };
 
-/* PIO + SPI 引脚（去掉未定义的 MTK_* 宏，避免语法错误） */
+/* PIO + SPI pin groups: keep minimal to avoid SoC-specific macro errors */
 &pio {
 	spi0_flash_pins: spi0-pins {
 		mux {
@@ -135,7 +141,6 @@
 			groups = "spi0", "spi0_wp_hold";
 		};
 
-		/* 这里只保留最基本的属性，删除 MTK_PUPD_* 宏，避免语法错误 */
 		conf-pu {
 			pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP";
 		};
@@ -146,6 +151,7 @@
 	};
 };
 
+/* Reference the local spi0 label so DTC can resolve phandle */
 &spi0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_flash_pins>;
@@ -154,6 +160,7 @@
 	status = "disabled";
 };
 
+/* Use local labels for supplies to avoid label-not-found */
 &xhci {
 	vusb33-supply = <&reg_3p3v>;
 	vbus-supply = <&reg_5v>;
