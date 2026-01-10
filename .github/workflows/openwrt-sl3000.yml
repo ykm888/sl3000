@@ -146,6 +146,15 @@ jobs:
           ls -lh "$TARGET_DIR"
           test -s ${TARGET_DIR}/*.bin
 
+      - name: Clean invalid artifact paths
+        run: |
+          echo "=== 清理非法路径文件，避免 artifact 上传失败 ==="
+          find build_dir staging_dir -type f | grep -E '[:\"<>|*?]' > /tmp/invalid_paths.txt || true
+          while read -r path; do
+            echo "⚠️ 删除非法文件: $path"
+            rm -f "$path"
+          done < /tmp/invalid_paths.txt
+
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
