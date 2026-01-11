@@ -67,64 +67,43 @@ jobs:
             mkdir -p "$(dirname "$DTS_MK")"
             echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" > "$DTS_MK"
           fi
-
           if ! grep -q "${DTS_NAME}.dtb" "$DTS_MK"; then
             echo "⚠️ DTS Makefile 缺少 sl3000 dtb 注册，自动追加"
             echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" >> "$DTS_MK"
           fi
-
           echo "📌 DTS Makefile 已对齐"
 
       - name: Auto-align DTS / mk / profile
         run: |
           echo "=== 自动对齐 DTS / mk / profile 三件套 ==="
-
-          if [ ! -f "$DTS_FILE" ]; then
-            echo "❌ DTS 文件不存在：$DTS_FILE"
-            exit 1
-          fi
-
-          DEVICE_DTS="${DTS_NAME}"
-
-          # 修复 mk
-          sed -i "s|DEVICE_DTS :=.*|DEVICE_DTS := ${DEVICE_DTS}|" "$MK_FILE"
+          [ -f "$DTS_FILE" ] || { echo "❌ DTS 文件不存在：$DTS_FILE"; exit 1; }
+          sed -i "s|DEVICE_DTS :=.*|DEVICE_DTS := ${DTS_NAME}|" "$MK_FILE"
           sed -i "s|DEVICE_DTS_DIR :=.*|DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek|" "$MK_FILE"
-
-          # 修复 .config
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
-
+          cat >> .config <<EOF
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y
+EOF
           make defconfig
-
           echo "🎉 三件套已完全对齐"
 
       - name: Patch auto check
         run: |
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
           if [ -z "$PATCH_DIRS" ]; then
-            echo "ℹ️ 无补丁目录，跳过 patch 检查"
-            exit 0
+            echo "ℹ️ 无补丁目录，跳过 patch 检查"; exit 0
           fi
           echo "ℹ️ 检查补丁是否能干净应用..."
-          find $PATCH_DIRS -name '*.patch' \
-            -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
+          find $PATCH_DIRS -name '*.patch' -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
 
       - name: DTS compile check + dtb auto-detect
         run: |
           make target/linux/compile -j"$(nproc)" V=s
-
           echo "=== 搜索所有 dtb 文件 ==="
           find build_dir -type f -name "*.dtb" || true
-
           DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
-
-          if [ -z "$DTB_PATH" ]; then
-            echo "❌ DTS 已编译，但未找到 sl3000 相关 dtb"
-            exit 1
-          fi
-
+          [ -n "$DTB_PATH" ] || { echo "❌ DTS 已编译，但未找到 sl3000 相关 dtb"; exit 1; }
           echo "✅ DTS 已编译为 dtb: $DTB_PATH"
 
       - name: Build firmware with auto-repair
@@ -148,35 +127,32 @@ jobs:
 
       - name: Package firmware outputs
         run: |
-          echo "=== 打包固件产物 ==="
-          tar -czf sl3000-emmc-firmware.tar.gz -C "$TARGET_DIR" .
-          sha256sum $TARGET_DIR/* > firmware-sha256.txt
-
-      - name: Clean invalid artifact paths
-        run: |
-          echo "=== 清理非法路径文件，避免 artifact 上传失败 ==="
-          find build_dir staging_dir -type f | grep -E '[:\"<>|*?]' > /tmp/invalid_paths.txt || true
-          while read -r path; do
-            echo "⚠️ 删除非法文件: $path"
-            rm -f "$path"
-          done < /tmp/invalid_paths.txt
+          echo "=== 打包固件产物到 TARGET_DIR ==="
+          tar -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "$TARGET_DIR" .
+          (cd "$TARGET_DIR" && sha256sum * > firmware-sha256.txt)
+          ls -lh "${TARGET_DIR}/"*
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-emmc-firmware
           path: |
-            ${{ env.TARGET_DIR }}/*
-            sl3000-emmc-firmware.tar.gz
-            firmware-sha256.txt
+            ${{ env.TARGET_DIR }}/*.bin
+            ${{ env.TARGET_DIR }}/*.img
+            ${{ env.TARGET_DIR }}/*.dtb
+            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
+            ${{ env.TARGET_DIR }}/firmware-sha256.txt
+          if-no-files-found: error
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ env.TARGET_DIR }}/*
-            sl3000-emmc-firmware.tar.gz
-            firmware-sha256.txt
+            ${{ env.TARGET_DIR }}/*.bin
+            ${{ env.TARGET_DIR }}/*.img
+            ${{ env.TARGET_DIR }}/*.dtb
+            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
+            ${{ env.TARGET_DIR }}/firmware-sha256.txt
           tag_name: sl3000-emmc-${{ github.run_number }}
           name: SL3000-EMMC Build ${{ github.run_number }}
           body: |
@@ -187,10 +163,10 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
+        run: |
+          mkdir -p logs || true
+          tar -czf build-logs.tar.gz logs/
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: |
-            logs/
-            build_dir/
-            staging_dir/
+          path: build-logs.tar.gz
