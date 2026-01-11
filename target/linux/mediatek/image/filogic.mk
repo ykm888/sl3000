@@ -4,24 +4,24 @@
 DTS_DIR := $(DTS_DIR)
 
 define Image/Prepare
-<TAB>rm -f $(KDIR)/ubi_mark
-<TAB>echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
+	rm -f $(KDIR)/ubi_mark
+	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
 endef
 
 define Build/mt7981-bl2
-<TAB>cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
+	cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
 endef
 
 define Build/mt7981-bl31-uboot
-<TAB>cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
+	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
 endef
 
 define Build/mt798x-gpt
-<TAB>cp $@ $@.tmp 2>/dev/null || true
-<TAB>ptgen -g -o $@.tmp -a 1 -l 1024 \
-<TAB>    -t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
-<TAB>cat $@.tmp >> $@
-<TAB>rm $@.tmp
+	cp $@ $@.tmp 2>/dev/null || true
+	ptgen -g -o $@.tmp -a 1 -l 1024 \
+		-t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
+	cat $@.tmp >> $@
+	rm $@.tmp
 endef
 
 metadata_gl_json = \
@@ -37,8 +37,8 @@ metadata_gl_json = \
 	}'
 
 define Build/append-gl-metadata
-<TAB>$(if $(SUPPORTED_DEVICES),-echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
-<TAB>sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
+	$(if $(SUPPORTED_DEVICES),-echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
+	sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
 endef
 
 define Device/sl3000-emmc
