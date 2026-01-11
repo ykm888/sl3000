@@ -63,38 +63,39 @@ jobs:
       - name: Auto-create DTS Makefile if missing
         run: |
           if [ ! -f "$DTS_MK" ]; then
-            echo "⚠️ DTS Makefile 不存在，自动创建"
+            echo "DTS Makefile 不存在，自动创建"
             mkdir -p "$(dirname "$DTS_MK")"
-            echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" > "$DTS_MK"
+            echo "dtb-$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" > "$DTS_MK"
           fi
           if ! grep -q "${DTS_NAME}.dtb" "$DTS_MK"; then
-            echo "⚠️ DTS Makefile 缺少 sl3000 dtb 注册，自动追加"
-            echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" >> "$DTS_MK"
+            echo "dtb-$(CONFIG_ARCH_MEDIATEK) += ${DTS_NAME}.dtb" >> "$DTS_MK"
           fi
-          echo "📌 DTS Makefile 已对齐"
+          echo "DTS Makefile 已对齐"
 
       - name: Auto-align DTS / mk / profile
         run: |
           echo "=== 自动对齐 DTS / mk / profile 三件套 ==="
-          [ -f "$DTS_FILE" ] || { echo "❌ DTS 文件不存在：$DTS_FILE"; exit 1; }
+          if [ ! -f "$DTS_FILE" ]; then
+            echo "DTS 文件不存在：$DTS_FILE"
+            exit 1
+          fi
           sed -i "s|DEVICE_DTS :=.*|DEVICE_DTS := ${DTS_NAME}|" "$MK_FILE"
           sed -i "s|DEVICE_DTS_DIR :=.*|DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek|" "$MK_FILE"
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
-          cat >> .config <<EOF
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y
-EOF
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
           make defconfig
-          echo "🎉 三件套已完全对齐"
+          echo "三件套已完全对齐"
 
       - name: Patch auto check
         run: |
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
           if [ -z "$PATCH_DIRS" ]; then
-            echo "ℹ️ 无补丁目录，跳过 patch 检查"; exit 0
+            echo "无补丁目录，跳过 patch 检查"
+            exit 0
           fi
-          echo "ℹ️ 检查补丁是否能干净应用..."
+          echo "检查补丁是否能干净应用..."
           find $PATCH_DIRS -name '*.patch' -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
 
       - name: DTS compile check + dtb auto-detect
@@ -103,18 +104,21 @@ EOF
           echo "=== 搜索所有 dtb 文件 ==="
           find build_dir -type f -name "*.dtb" || true
           DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
-          [ -n "$DTB_PATH" ] || { echo "❌ DTS 已编译，但未找到 sl3000 相关 dtb"; exit 1; }
-          echo "✅ DTS 已编译为 dtb: $DTB_PATH"
+          if [ -z "$DTB_PATH" ]; then
+            echo "DTS 已编译，但未找到 sl3000 相关 dtb"
+            exit 1
+          fi
+          echo "DTS 已编译为 dtb: $DTB_PATH"
 
       - name: Build firmware with auto-repair
         run: |
           set -e
           build_once() { make -j"$(nproc)" V=s; }
           if ! build_once; then
-            echo "⚠️ 构建失败，清理 build_dir 重试"
+            echo "构建失败，清理 build_dir 重试"
             rm -rf build_dir
             if ! build_once; then
-              echo "⚠️ 再次失败，清理 dl + build_dir + staging_dir + tmp 再试"
+              echo "再次失败，清理 dl + build_dir + staging_dir + tmp 再试"
               rm -rf dl build_dir staging_dir tmp
               build_once
             fi
@@ -156,10 +160,10 @@ EOF
           tag_name: sl3000-emmc-${{ github.run_number }}
           name: SL3000-EMMC Build ${{ github.run_number }}
           body: |
-            - Profile: sl3000-emmc
-            - DTS: ${{ env.DTS_FILE }}
-            - DTS Makefile: ${{ env.DTS_MK }}
-            - Commit: ${{ github.sha }}
+            Profile: sl3000-emmc
+            DTS: ${{ env.DTS_FILE }}
+            DTS Makefile: ${{ env.DTS_MK }}
+            Commit: ${{ github.sha }}
 
       - name: Pack logs on failure
         if: failure()
