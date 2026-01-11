@@ -1,50 +1,48 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Filogic platform image definitions
 
-DTS_DIR := $(DTS_DIR)/mediatek
+# 关键：保持 DTS_DIR 原样，避免路径重复
+DTS_DIR := $(DTS_DIR)
 
 define Image/Prepare
-	# For UBI we want only one extra block
-	rm -f $(KDIR)/ubi_mark
-	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
+    # For UBI we want only one extra block
+    rm -f $(KDIR)/ubi_mark
+    echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
 endef
 
-# 通用构建规则保留
+# ===== 通用构建规则保留 =====
 define Build/mt7981-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
+    cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
 endef
 
 define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
+    cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
 endef
 
 define Build/mt798x-gpt
-	cp $@ $@.tmp 2>/dev/null || true
-	ptgen -g -o $@.tmp -a 1 -l 1024 \
-		-t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
-	cat $@.tmp >> $@
-	rm $@.tmp
+    cp $@ $@.tmp 2>/dev/null || true
+    ptgen -g -o $@.tmp -a 1 -l 1024 \
+        -t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
+    cat $@.tmp >> $@
+    rm $@.tmp
 endef
 
-# 保留元数据生成逻辑
+# 元数据（保留且简化，不引入复杂变量）
 metadata_gl_json = \
-	'{ \
-		"metadata_version": "1.1", \
-		"compat_version": "$(call json_quote,$(compat_version))", \
-		"version": { \
-			"release": "$(call json_quote,$(VERSION_NUMBER))", \
-			"date": "$(shell TZ='Asia/Chongqing' date '+%Y%m%d%H%M%S')", \
-			"dist": "$(call json_quote,$(VERSION_DIST))", \
-			"version": "$(call json_quote,$(VERSION_NUMBER))", \
-			"revision": "$(call json_quote,$(REVISION))", \
-			"target": "$(call json_quote,$(TARGETID))", \
-			"board": "$(call json_quote,$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)))" \
-		} \
-	}'
+    '{ \
+        "metadata_version": "1.1", \
+        "version": { \
+            "release": "$(call json_quote,$(VERSION_NUMBER))", \
+            "dist": "$(call json_quote,$(VERSION_DIST))", \
+            "revision": "$(call json_quote,$(REVISION))", \
+            "target": "$(call json_quote,$(TARGETID))", \
+            "board": "$(call json_quote,$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)))" \
+        } \
+    }'
 
 define Build/append-gl-metadata
-	$(if $(SUPPORTED_DEVICES),-echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
-	sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
+    $(if $(SUPPORTED_DEVICES),-echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
+    sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
 endef
 
 # ===========================
@@ -67,13 +65,15 @@ define Device/sl3000-emmc
     kmod-mt7981-firmware \
     mt7981-wo-firmware
 
+  # 仅生成 sysupgrade.bin，干净稳定
   IMAGES := sysupgrade.bin
 
+  # Kernel/Initramfs（保持标准 fit 结构）
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
 
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  # 镜像规则：sysupgrade tar 并追加元数据与校验
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
-
