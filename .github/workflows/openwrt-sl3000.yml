@@ -161,12 +161,16 @@ EOF
             - DTS Makefile: ${{ env.DTS_MK }}
             - Commit: ${{ github.sha }}
 
-      - name: Upload logs on failure
+      - name: Pack logs on failure
         if: failure()
         run: |
           mkdir -p logs || true
           tar -czf build-logs.tar.gz logs/
+
+      - name: Upload logs artifact
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
           path: build-logs.tar.gz
+          if-no-files-found: ignore
