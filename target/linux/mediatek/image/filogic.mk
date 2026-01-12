@@ -64,13 +64,15 @@ define Device/sl3000-emmc
     docker dockerd docker-compose containerd runc \
     lxc lxc-templates cgroupfs-mount
 
-  IMAGES := sysupgrade.bin
+  IMAGES := sysupgrade.bin initramfs-recovery.bin
 
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata
+  IMAGE/initramfs-recovery.bin := append-gl-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
+
 
