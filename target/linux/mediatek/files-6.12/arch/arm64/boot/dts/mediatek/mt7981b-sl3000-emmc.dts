@@ -2,10 +2,9 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include "mediatek/mt7981.dtsi"
 
-#include "mt7981.dtsi"
-
- / {
+/ {
     compatible = "sl,3000-emmc", "mediatek,mt7981";
     model = "SL-3000 eMMC bootstrap version";
 
@@ -107,12 +106,12 @@
     };
 };
 
- / {
+&pio {
     leds {
         compatible = "gpio-leds";
-        status_red { label = "red:status"; gpios = <&pio 10 GPIO_ACTIVE_HIGH>; };
-        status_green { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_HIGH>; };
-        status_blue { label = "blue:status"; gpios = <&pio 12 GPIO_ACTIVE_HIGH>; };
+        statusred   { label = "red:status";   gpios = <&pio 10 GPIO_ACTIVE_HIGH>; };
+        statusgreen { label = "green:status"; gpios = <&pio 11 GPIO_ACTIVE_HIGH>; };
+        statusblue  { label = "blue:status";  gpios = <&pio 12 GPIO_ACTIVE_HIGH>; };
     };
 
     gpio-keys {
