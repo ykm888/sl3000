@@ -177,4 +177,46 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files:
+          files: |
+            ${{ env.TARGET_DIR }}/*sysupgrade.bin
+            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
+            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
+            ${{ env.TARGET_DIR }}/firmware-sha256.txt
+          tag_name: sl3000-emmc-${{ github.run_number }}
+          name: SL3000-EMMC Build ${{ github.run_number }}
+          body: |
+            Profile: sl3000-emmc
+            DTS: ${{ env.DTS_FILE }}
+            DTS Makefile: ${{ env.DTS_MK }}
+            Commit: ${{ github.sha }}
+          overwrite: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect debug context on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          mkdir -p debug || true
+          {
+            echo "TARGET_DIR=${TARGET_DIR}"
+            echo "PROFILE=${PROFILE}"
+            echo "DTS_NAME=${DTS_NAME}"
+            echo "DTS_FILE=${DTS_FILE}"
+            echo "DTS_MK=${DTS_MK}"
+            echo "MK_FILE=${MK_FILE}"
+          } > debug/env.txt
+          [ -f .config ] && cp -v .config debug/ || echo ".config not found"
+          if [ -d bin/targets/ ]; then
+            ls -R bin/targets/ > debug/targets-tree.txt
+          else
+            echo "bin/targets/ not found" > debug/targets-tree.txt
+          fi
+          tar -czf debug-context.tar.gz debug
+
+      - name: Upload debug context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-context
+          path: debug-context.tar.gz
+          if-no-files-found: ignore
