@@ -55,7 +55,14 @@ define Device/sl3000-emmc
     kmod-usb3 \
     kmod-mt76 \
     kmod-mt7981-firmware \
-    mt7981-wo-firmware
+    mt7981-wo-firmware \
+    kmod-mt7530 \
+    kmod-dsa \
+    kmod-dsa-mt7530 \
+    luci \
+    luci-theme-argon \
+    docker dockerd docker-compose containerd runc \
+    lxc lxc-templates cgroupfs-mount
 
   IMAGES := sysupgrade.bin
 
@@ -66,3 +73,4 @@ define Device/sl3000-emmc
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
+
