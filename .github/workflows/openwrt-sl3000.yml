@@ -77,7 +77,7 @@ jobs:
 
       - name: Align target profile in .config
         run: |
-          set -e
+          set -euo pipefail
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
@@ -86,7 +86,7 @@ jobs:
 
       - name: Patch dry-run check
         run: |
-          set -e
+          set -euo pipefail
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
           if [ -n "${PATCH_DIRS}" ]; then
             find ${PATCH_DIRS} -name '*.patch' -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
@@ -94,7 +94,7 @@ jobs:
 
       - name: DTS compile + dtb detect
         run: |
-          set -e
+          set -euo pipefail
           make target/linux/compile -j"$(nproc)" V=s
           DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
           [ -n "${DTB_PATH}" ] || { echo "❌ DTS compiled but ${DTS_NAME}.dtb not found"; exit 1; }
@@ -102,7 +102,7 @@ jobs:
 
       - name: Build firmware with auto-repair
         run: |
-          set -e
+          set -euo pipefail
           build_once() { make -j"$(nproc)" V=s; }
           if ! build_once; then
             echo "⚠️ Build failed, clean build_dir and retry"
@@ -145,11 +145,20 @@ jobs:
           echo "=== Create checksum file (files only) ==="
           (cd "${TARGET_DIR}" && find . -maxdepth 1 -type f -exec sha256sum {} \; > firmware-sha256.txt)
 
-          echo "=== Tar archive with excludes ==="
-          tar --exclude="sl3000-emmc-firmware.tar.gz" \
-              --exclude="firmware-sha256.txt" \
-              --warning=no-file-changed \
-              -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "${TARGET_DIR}" .
+          echo "=== Build whitelist of files to package ==="
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < <(compgen -G "${TARGET_DIR}/*sysupgrade.bin")
+          while IFS= read -r f; do files+=("$f"); done < <(compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" || true)
+          while IFS= read -r f; do files+=("$f"); done < <(compgen -G "${TARGET_DIR}/*.manifest" || true)
+          while IFS= read -r f; do files+=("$f"); done < <(compgen -G "${TARGET_DIR}/*.buildinfo" || true)
+          files+=("${TARGET_DIR}/firmware-sha256.txt")
+
+          echo "Files to package:"
+          printf ' - %s\n' "${files[@]}"
+
+          echo "=== Create tar from whitelist ==="
+          tar -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" \
+            -C "${TARGET_DIR}" $(printf '%s\n' "${files[@]}" | xargs -n1 basename)
 
           echo "=== List packaged artifacts ==="
           ls -lh "${TARGET_DIR}/"*
@@ -168,23 +177,4 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ env.TARGET_DIR }}/*sysupgrade.bin
-            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
-            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
-            ${{ env.TARGET_DIR }}/firmware-sha256.txt
-          tag_name: sl3000-emmc-${{ github.run_number }}
-          name: SL3000-EMMC Build ${{ github.run_number }}
-          body: |
-            Profile: sl3000-emmc
-            DTS: ${{ env.DTS_FILE }}
-            DTS Makefile: ${{ env.DTS_MK }}
-            Commit: ${{ github.sha }}
-
-      - name: Collect debug context on failure
-        if: failure()
-        run: |
-          set -e
-          mkdir -p debug || true
-          echo "TARGET_DIR=${TARGET_DIR}" > debug/env.txt
-          cp -v
+          files:
