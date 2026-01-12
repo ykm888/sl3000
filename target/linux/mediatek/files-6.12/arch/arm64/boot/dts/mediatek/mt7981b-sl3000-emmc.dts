@@ -1,137 +1,142 @@
-/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
-/*
- * SL-3000 EMMC Board DTS
- */
-
 /dts-v1/;
-#include "mt7981-rfb.dts"
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
 
 / {
-    model = "SL-3000 (EMMC)";
     compatible = "sl,3000-emmc", "mediatek,mt7981";
+    model = "SL-3000 eMMC bootstrap version";
+    #address-cells = <2>;
+    #size-cells = <2>;
+    interrupt-parent = <&gic>;
 
-    aliases {
-        led-boot = &red_status;
-        led-failsafe = &red_status;
-        led-running = &green_status;
-        led-upgrade = &blue_status;
-        serial0 = &uart0;
+    memory {
+        device_type = "memory";
+        reg = <0x0 0x40000000 0x0 0x40000000>; /* 1GB RAM */
     };
 
     chosen {
-        stdout-path = "serial0:115200n8";
-        bootargs-append = " root=/dev/fit0 rootwait";
+        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
     };
 
-    memory@40000000 {
-        device_type = "memory";
-        reg = <0 0x40000000 0 0x20000000>;
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+        cpu@0 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <0>;
+            enable-method = "psci";
+        };
+        cpu@1 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <1>;
+            enable-method = "psci";
+        };
+    };
+
+    serial@11002000 {
+        compatible = "mediatek,mt6577-uart";
+        reg = <0x0 0x11002000 0x0 0x400>;
+        interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+        status = "okay";
+    };
+
+    mmc@11230000 {
+        compatible = "mediatek,mt7981-mmc";
+        reg = <0x0 0x11230000 0x0 0x1000>;
+        interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+        bus-width = <8>;
+        non-removable;
+        cap-mmc-highspeed;
+        max-frequency = <50000000>;
+        pinctrl-names = "default";
+        status = "okay";
+
+        partitions {
+            compatible = "fixed-partitions";
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            partition@0 {
+                label = "kernel";
+                reg = <0x00000000 0x02000000>; /* 32MB */
+            };
+
+            partition@2000000 {
+                label = "rootfs";
+                reg = <0x02000000 0x20000000>; /* 512MB */
+            };
+
+            partition@22000000 {
+                label = "rootfs_data";
+                reg = <0x22000000 0x100000000>; /* 4GB */
+            };
+
+            partition@122000000 {
+                label = "docker";
+                reg = <0x122000000 0xEE0000000>; /* 60GB */
+            };
+
+            partition@522000000 {
+                label = "swap";
+                reg = <0x522000000 0x80000000>; /* 2GB */
+            };
+
+            partition@5A2000000 {
+                label = "data";
+                reg = <0x5A2000000 0x0>; /* 剩余空间 (~61GB) */
+            };
+        };
+    };
+
+    ethernet@15100000 {
+        compatible = "mediatek,mt7981-eth";
+        reg = <0x0 0x15100000 0x0 0x80000>;
+        interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+        status = "okay";
+
+        mac@0 {
+            compatible = "mediatek,eth-mac";
+            reg = <0>;
+            phy-mode = "2500base-x";
+            fixed-link {
+                speed = <2500>;
+                full-duplex;
+            };
+        };
+
+        mac@1 {
+            compatible = "mediatek,eth-mac";
+            reg = <1>;
+            phy-mode = "2500base-x";
+            fixed-link {
+                speed = <2500>;
+                full-duplex;
+            };
+        };
     };
 
     leds {
         compatible = "gpio-leds";
-
-        red_status: led0 {
+        led-0 {
             label = "red:status";
-            gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-            default-state = "on";
+            gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
         };
-
-        green_status: led1 {
+        led-1 {
             label = "green:status";
-            gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-            default-state = "off";
+            gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
         };
-
-        blue_status: led2 {
+        led-2 {
             label = "blue:status";
-            gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-            default-state = "off";
+            gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
         };
     };
 
     gpio-keys {
         compatible = "gpio-keys";
-
         reset {
             label = "reset";
-            linux,code = <KEY_RESTART>;
             gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-        };
-
-        mesh {
-            label = "mesh";
-            linux,code = <KEY_WPS_BUTTON>;
-            gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_RESTART>;
         };
     };
-};
-
-/* EMMC */
-&mmc0 {
-    status = "okay";
-    bus-width = <8>;
-    non-removable;
-    no-sd;
-    no-sdio;
-    max-frequency = <52000000>;
-};
-
-/* Ethernet */
-&eth {
-    status = "okay";
-
-    gmac0: mac@0 {
-        compatible = "mediatek,eth-mac";
-        reg = <0>;
-        phy-mode = "2500base-x";
-
-        fixed-link {
-            speed = <2500>;
-            full-duplex;
-            pause;
-        };
-    };
-};
-
-/* MDIO + Switch */
-&mdio_bus {
-    switch: switch@1f {
-        compatible = "mediatek,mt7531";
-        reg = <31>;
-        reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
-
-        ports {
-            #address-cells = <1>;
-            #size-cells = <0>;
-
-            port@0 { reg = <0>; label = "lan1"; };
-            port@1 { reg = <1>; label = "lan2"; };
-            port@2 { reg = <2>; label = "lan3"; };
-            port@3 { reg = <3>; label = "wan"; };
-            port@6 {
-                reg = <6>;
-                label = "cpu";
-                ethernet = <&gmac0>;
-                phy-mode = "2500base-x";
-                fixed-link {
-                    speed = <2500>;
-                    full-duplex;
-                    pause;
-                };
-            };
-        };
-    };
-};
-
-/* UART */
-&uart0 {
-    status = "okay";
-};
-
-/* Watchdog */
-&watchdog {
-    status = "okay";
 };
