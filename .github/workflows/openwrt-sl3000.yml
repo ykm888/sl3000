@@ -117,16 +117,19 @@ jobs:
       - name: Verify firmware outputs
         run: |
           set -euo pipefail
+          echo "TARGET_DIR=${TARGET_DIR}"
+          [ -n "${TARGET_DIR:-}" ] || { echo "❌ TARGET_DIR is empty"; exit 1; }
+          [ -d "${TARGET_DIR}" ] || { echo "❌ TARGET_DIR not found: ${TARGET_DIR}"; exit 1; }
+
           echo "=== Target dir listing ==="
-          ls -lh "$TARGET_DIR" || { echo "❌ TARGET_DIR not accessible: $TARGET_DIR"; exit 1; }
-          if ! compgen -G "$TARGET_DIR/*.bin" > /dev/null; then
-            echo "❌ No .bin files in $TARGET_DIR"; exit 1
-          fi
-          sys=$(compgen -G "$TARGET_DIR/*sysupgrade.bin" | head -n 1 || true)
-          if [ -z "$sys" ]; then
-            echo "❌ Missing sysupgrade.bin"; ls -lh "$TARGET_DIR"; exit 1
-          fi
-          if compgen -G "$TARGET_DIR/*initramfs-kernel.bin" > /dev/null; then
+          ls -lh "${TARGET_DIR}"
+
+          compgen -G "${TARGET_DIR}/*.bin" > /dev/null || { echo "❌ No .bin files in ${TARGET_DIR}"; exit 1; }
+
+          sys=$(compgen -G "${TARGET_DIR}/*sysupgrade.bin" | head -n 1 || true)
+          [ -n "${sys}" ] || { echo "❌ Missing sysupgrade.bin"; exit 1; }
+
+          if compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null; then
             echo "ℹ️ initramfs-kernel present"
           else
             echo "ℹ️ initramfs-kernel not found (optional)"
@@ -135,13 +138,19 @@ jobs:
       - name: Package firmware outputs
         run: |
           set -euo pipefail
+          echo "TARGET_DIR=${TARGET_DIR}"
+          [ -n "${TARGET_DIR:-}" ] || { echo "❌ TARGET_DIR is empty"; exit 1; }
+          [ -d "${TARGET_DIR}" ] || { echo "❌ TARGET_DIR not found: ${TARGET_DIR}"; exit 1; }
+
           echo "=== Create checksum file (files only) ==="
-          (cd "$TARGET_DIR" && find . -maxdepth 1 -type f -exec sha256sum {} \; > firmware-sha256.txt)
+          (cd "${TARGET_DIR}" && find . -maxdepth 1 -type f -exec sha256sum {} \; > firmware-sha256.txt)
+
           echo "=== Tar archive with excludes ==="
           tar --exclude="sl3000-emmc-firmware.tar.gz" \
               --exclude="firmware-sha256.txt" \
               --warning=no-file-changed \
-              -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "$TARGET_DIR" .
+              -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "${TARGET_DIR}" .
+
           echo "=== List packaged artifacts ==="
           ls -lh "${TARGET_DIR}/"*
 
@@ -177,14 +186,5 @@ jobs:
         run: |
           set -e
           mkdir -p debug || true
-          cp -v .config debug/ || true
-          ls -R bin/targets/ > debug/targets-tree.txt || true
-          tar -czf debug-context.tar.gz debug
-
-      - name: Upload debug context
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-context
-          path: debug-context.tar.gz
-          if-no-files-found: ignore
+          echo "TARGET_DIR=${TARGET_DIR}" > debug/env.txt
+          cp -v
