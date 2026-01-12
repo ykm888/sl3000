@@ -2,6 +2,9 @@ name: Build SL3000-EMMC Firmware
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -60,15 +63,21 @@ jobs:
 
       - name: DTS/mk sanity check
         run: |
-          set -e
-          [ -f "${DTS_FILE}" ] || { echo "❌ Missing DTS_FILE"; exit 1; }
-          [ -f "${DTS_MK}" ] || { echo "❌ Missing DTS_MK"; exit 1; }
-          [ -f "${MK_FILE}" ] || { echo "❌ Missing MK_FILE"; exit 1; }
-          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ ${DTS_MK} lacks dtb entry"; exit 1; }
+          set -euo pipefail
+          echo "PROFILE=${PROFILE}"
+          echo "DTS_NAME=${DTS_NAME}"
+          echo "DTS_FILE=${DTS_FILE}"
+          echo "DTS_MK=${DTS_MK}"
+          echo "MK_FILE=${MK_FILE}"
+          [ -f "${DTS_FILE}" ] || { echo "❌ Missing ${DTS_FILE}"; exit 1; }
+          [ -f "${DTS_MK}" ] || { echo "❌ Missing ${DTS_MK}"; exit 1; }
+          [ -f "${MK_FILE}" ] || { echo "❌ Missing ${MK_FILE}"; exit 1; }
+          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ ${DTS_MK} lacks dtb entry for ${DTS_NAME}"; exit 1; }
           echo "✅ DTS/mk sanity passed"
 
       - name: Align target profile in .config
         run: |
+          set -e
           sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
@@ -77,6 +86,7 @@ jobs:
 
       - name: Patch dry-run check
         run: |
+          set -e
           PATCH_DIRS=$(ls -d target/linux/mediatek/patches-* 2>/dev/null || true)
           if [ -n "${PATCH_DIRS}" ]; then
             find ${PATCH_DIRS} -name '*.patch' -exec sh -c 'patch -p1 --dry-run -f < "$1"' _ {} \;
@@ -84,9 +94,10 @@ jobs:
 
       - name: DTS compile + dtb detect
         run: |
+          set -e
           make target/linux/compile -j"$(nproc)" V=s
           DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
-          [ -n "${DTB_PATH}" ] || { echo "❌ DTS compiled but dtb not found"; exit 1; }
+          [ -n "${DTB_PATH}" ] || { echo "❌ DTS compiled but ${DTS_NAME}.dtb not found"; exit 1; }
           echo "✅ Found dtb: ${DTB_PATH}"
 
       - name: Build firmware with auto-repair
@@ -105,14 +116,15 @@ jobs:
 
       - name: Verify firmware outputs
         run: |
-          set -e
+          set -euo pipefail
           echo "=== Target dir listing ==="
-          ls -lh "$TARGET_DIR"
+          ls -lh "$TARGET_DIR" || { echo "❌ TARGET_DIR not accessible: $TARGET_DIR"; exit 1; }
           if ! compgen -G "$TARGET_DIR/*.bin" > /dev/null; then
-            echo "❌ No .bin files found"; exit 1
+            echo "❌ No .bin files in $TARGET_DIR"; exit 1
           fi
-          if ! compgen -G "$TARGET_DIR/*sysupgrade.bin" > /dev/null; then
-            echo "❌ Missing sysupgrade.bin"; exit 1
+          sys=$(compgen -G "$TARGET_DIR/*sysupgrade.bin" | head -n 1 || true)
+          if [ -z "$sys" ]; then
+            echo "❌ Missing sysupgrade.bin"; ls -lh "$TARGET_DIR"; exit 1
           fi
           if compgen -G "$TARGET_DIR/*initramfs-kernel.bin" > /dev/null; then
             echo "ℹ️ initramfs-kernel present"
@@ -122,14 +134,15 @@ jobs:
 
       - name: Package firmware outputs
         run: |
-          set -e
-          # 先生成校验文件
-          (cd "$TARGET_DIR" && sha256sum * > firmware-sha256.txt)
-          # 打包时排除自身和校验文件，允许目录变化警告
+          set -euo pipefail
+          echo "=== Create checksum file (files only) ==="
+          (cd "$TARGET_DIR" && find . -maxdepth 1 -type f -exec sha256sum {} \; > firmware-sha256.txt)
+          echo "=== Tar archive with excludes ==="
           tar --exclude="sl3000-emmc-firmware.tar.gz" \
               --exclude="firmware-sha256.txt" \
               --warning=no-file-changed \
               -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "$TARGET_DIR" .
+          echo "=== List packaged artifacts ==="
           ls -lh "${TARGET_DIR}/"*
 
       - name: Upload firmware artifact
@@ -159,16 +172,19 @@ jobs:
             DTS Makefile: ${{ env.DTS_MK }}
             Commit: ${{ github.sha }}
 
-      - name: Pack logs on failure
+      - name: Collect debug context on failure
         if: failure()
         run: |
-          mkdir -p logs || true
-          tar -czf build-logs.tar.gz logs/
+          set -e
+          mkdir -p debug || true
+          cp -v .config debug/ || true
+          ls -R bin/targets/ > debug/targets-tree.txt || true
+          tar -czf debug-context.tar.gz debug
 
-      - name: Upload logs artifact
+      - name: Upload debug context
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
-          path: build-logs.tar.gz
+          name: debug-context
+          path: debug-context.tar.gz
           if-no-files-found: ignore
