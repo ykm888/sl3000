@@ -70,7 +70,7 @@ jobs:
           grep -q "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
           echo "✅ DTS/mk 检查通过"
 
-      - name: Configure target
+      - name: Configure target (自动注册)
         run: |
           echo "CONFIG_TARGET_mediatek_filogic=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
@@ -79,7 +79,7 @@ jobs:
 
       - name: Toolchain summary
         run: |
-          echo "✅ 工具链准备完成，开始固件编译阶段"
+          echo "✅ 工具链准备完成，进入固件编译阶段"
 
   firmware:
     runs-on: ubuntu-24.04
@@ -102,7 +102,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential python3 file wget curl git coreutils time
 
-      - name: Build firmware
+      - name: Build firmware (自动修复：并行→单线程→忽略错误)
         run: |
           make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
 
@@ -112,14 +112,15 @@ jobs:
           ls -lh "${TARGET_DIR}" || true
           df -h
 
-      - name: Verify firmware artifacts
+      - name: Verify firmware artifacts (自动检测 + 宽容判定)
         run: |
           [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR: ${TARGET_DIR}"; exit 1; }
           ls -lh "${TARGET_DIR}"
-          # 宽容匹配，优先 squashfs-sysupgrade
-          compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || \
+            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
-          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery 存在" || echo "ℹ️ initramfs-recovery 缺失（可选）"
+          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && \
+            echo "ℹ️ initramfs-recovery 存在" || echo "ℹ️ initramfs-recovery 缺失（可选）"
           echo "✅ 固件产物检查通过"
 
       - name: Print artifact filenames
@@ -130,7 +131,6 @@ jobs:
       - name: Package artifacts
         run: |
           cd "${TARGET_DIR}"
-          # 只计算存在的目标，避免空输出
           { ls ./*squashfs-sysupgrade.bin ./*sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | xargs -r sha256sum; } > sha256sums
           tar -czf "immortalwrt-${PROFILE}-firmware.tar.gz" \
             ./*squashfs-sysupgrade.bin \
