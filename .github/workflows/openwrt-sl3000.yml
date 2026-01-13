@@ -10,20 +10,23 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
-  DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-  DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
-  MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
 
 jobs:
-  build:
+  toolchain:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          sudo docker system prune -af || true
+          df -h
 
       - name: Install dependencies
         run: |
@@ -37,32 +40,53 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Check DTS and Makefiles
+      - name: DTS/mk sanity check
         run: |
-          test -f "${DTS_FILE}" || { echo "❌ DTS not found: ${DTS_FILE}"; exit 1; }
-          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ DTS_MK missing entry"; exit 1; }
-          test -f "${MK_FILE}" || { echo "❌ MK_FILE not found: ${MK_FILE}"; exit 1; }
+          DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${DTS_NAME}.dts"
+          MK_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile"
+          IMAGE_MK="target/linux/mediatek/image/filogic.mk"
+          [ -f "${DTS_FILE}" ] || { echo "❌ DTS 文件不存在"; exit 1; }
+          [ -f "${MK_FILE}" ] || { echo "❌ DTS Makefile 不存在"; exit 1; }
+          [ -f "${IMAGE_MK}" ] || { echo "❌ filogic.mk 不存在"; exit 1; }
+          grep -q "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
 
-      - name: Generate .config
+      - name: Configure target
         run: |
           echo "CONFIG_TARGET_mediatek_filogic=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
           make defconfig
 
+      - name: Toolchain summary
+        run: echo "✅ 工具链准备完成"
+
+  firmware:
+    runs-on: ubuntu-24.04
+    needs: toolchain
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install minimal runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 file wget curl git coreutils time
+
       - name: Build firmware (自动修复链路)
         run: |
           make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
 
-      - name: Check artifacts
+      - name: Verify firmware artifacts
         run: |
-          ls -lh "${TARGET_DIR}"
+          [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR"; exit 1; }
           compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || \
-            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
-          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
+            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && \
-            echo "ℹ️ initramfs-recovery present" || echo "ℹ️ initramfs-recovery optional and missing"
+            echo "ℹ️ initramfs-recovery 存在" || echo "ℹ️ initramfs-recovery 缺失（可选）"
 
-      - name: Package tarball + sha256sums
+      - name: Package artifacts
         run: |
           cd "${TARGET_DIR}"
           sha256sum ./*squashfs-sysupgrade.bin ./*sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | sed '/^$/d' > sha256sums
@@ -74,7 +98,7 @@ jobs:
           mv "immortalwrt-${PROFILE}-firmware.tar.gz" "${GITHUB_WORKSPACE}/"
           mv "sha256sums" "${GITHUB_WORKSPACE}/"
 
-      - name: Upload artifact
+      - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
@@ -96,7 +120,7 @@ jobs:
         id: ts
         run: echo "utcnow=$(date -u +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Create tag
+      - name: Create and push tag
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
