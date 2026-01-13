@@ -17,6 +17,7 @@ env:
   DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
+  CCACHE_DIR: ~/.ccache
 
 jobs:
   build:
@@ -52,7 +53,7 @@ jobs:
             build_dir
             staging_dir
             tmp
-          key: ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-${{ hashFiles('feeds.conf.default', 'package/**', 'tools/**', 'toolchain/**') }}
+          key: ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-${{ hashFiles('feeds.conf.default', 'package/**', 'tools/**', 'toolchain/**', 'target/**') }}
           restore-keys: |
             ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-
 
@@ -66,7 +67,6 @@ jobs:
 
       - name: Configure ccache
         run: |
-          export CCACHE_DIR="${HOME}/.ccache"
           ccache -M 2G
           ccache -s
 
@@ -88,19 +88,17 @@ jobs:
           if timeout 20m make tools/install -j$(nproc); then
             echo "tools ok"
           else
-            echo "[timeout] fallback single-thread tools"
             make tools/install -j1 V=s
           fi
           if timeout 20m make toolchain/install -j$(nproc); then
             echo "toolchain ok"
           else
-            echo "[timeout] fallback single-thread toolchain"
             make toolchain/install -j1 V=s
           fi
 
       - name: Auto-create DTS Makefile if missing
         run: |
-          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || echo "dtb-$(CONFIG_TARGET_ARCH) += ${DTS_NAME}.dtb" >> "${DTS_MK}"
+          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || echo "dtb-y += ${DTS_NAME}.dtb" >> "${DTS_MK}"
 
       - name: Auto-align DTS / mk / profile
         run: |
@@ -109,6 +107,7 @@ jobs:
           grep -q "${PROFILE}" "${MK_FILE}" || { echo "❌ MK_FILE missing profile"; exit 1; }
 
       - name: Patch auto check (skip if no patches)
+        id: patchcheck
         run: |
           set -e
           if ls target/linux/mediatek/patches-* 1>/dev/null 2>&1; then
@@ -118,11 +117,14 @@ jobs:
             done < <(find target/linux/mediatek/patches-* -type f)
             if [ "${#FAILED_PATCHES[@]}" -gt 0 ]; then
               printf "%s\n" "${FAILED_PATCHES[@]}" > patches_failed.txt
-              echo "❌ Patch conflicts detected. See patches_failed.txt"
+              echo "patch_conflicts=detected" >> $GITHUB_OUTPUT
               exit 1
+            else
+              echo "patch_conflicts=none" >> $GITHUB_OUTPUT
             fi
           else
             echo "ℹ️ No patch directory found, skipping patch check."
+            echo "patch_conflicts=none" >> $GITHUB_OUTPUT
           fi
 
       - name: DTS compile check + dtb auto-dump
@@ -135,7 +137,6 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
-          # Disable unrelated drivers
           cat >> .config <<'EOF'
           CONFIG_USB_SUPPORT=n
           CONFIG_SOUND_SUPPORT=n
@@ -154,7 +155,6 @@ jobs:
           if timeout 30m make -j$(nproc); then
             echo "parallel build ok"
           else
-            echo "[timeout] fallback single-thread"
             make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
           fi
 
@@ -163,7 +163,7 @@ jobs:
           ls -lh "${TARGET_DIR}"
           compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
-          (cd "${TARGET_DIR}" && rm -f sha256sums.txt && sha256sum * > sha256sums.txt)
+          (cd "${TARGET_DIR}" && rm -f sha256sums.txt && find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt)
           (cd "${TARGET_DIR}" && ls -1 > profiles.txt)
 
       - name: Upload firmware
@@ -175,6 +175,9 @@ jobs:
             ${TARGET_DIR}/*initramfs-kernel.bin
             ${TARGET_DIR}/sha256sums.txt
             ${TARGET_DIR}/profiles.txt
+            ${TARGET_DIR}/*.manifest
+            ${TARGET_DIR}/*.buildinfo
+            ${TARGET_DIR}/profiles.json
 
       - name: Timestamp + build meta
         id: meta
@@ -184,19 +187,8 @@ jobs:
           echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "cache_ccache_size=$(du -sh ~/.ccache 2>/dev/null | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "cpu=$(nproc)" >> "$GITHUB_OUTPUT"
-          echo "mem=$(free -h | awk '/Mem:/ {print $2}')" >> "$GITHUB_OUTPUT"
-          echo "disk=$(df -h / | awk 'NR==2{print $4}')" >> "$GITHUB_OUTPUT"
-
-      - name: Create tag
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          TAG="immortalwrt-${PROFILE}-$(date -u +'%Y%m%d%H%M%S')"
-          git tag "${TAG}"
-          git push origin "${TAG}"
-          echo "TAG_NAME=${TAG}" >> "$GITHUB_ENV"
-
-      - name: Publish GitHub Release
+          echo "mem=$(free -h | awk '/Mem:/ {print $2}')" >> "$GITHUB
+          - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG_NAME }}
@@ -205,6 +197,9 @@ jobs:
             ${TARGET_DIR}/*initramfs-kernel.bin
             ${TARGET_DIR}/sha256sums.txt
             ${TARGET_DIR}/profiles.txt
+            ${TARGET_DIR}/*.manifest
+            ${TARGET_DIR}/*.buildinfo
+            ${TARGET_DIR}/profiles.json
           body: |
             Profile: ${{ env.PROFILE }}
             DTS: ${{ env.DTS_NAME }}
@@ -214,7 +209,7 @@ jobs:
             Runner: CPU=${{ steps.meta.outputs.cpu }} MEM=${{ steps.meta.outputs.mem }} DISK=${{ steps.meta.outputs.disk }}
             ccache size: ${{ steps.meta.outputs.cache_ccache_size }}
             Checksums: see sha256sums.txt
-            Patch conflicts: $(test -f patches_failed.txt && cat patches_failed.txt || echo "none")
+            Patch conflicts: ${{ steps.patchcheck.outputs.patch_conflicts }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
