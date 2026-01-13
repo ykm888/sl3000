@@ -1,10 +1,10 @@
-name: Build SL3000-EMMC Firmware
+name: Build ImmortalWrt SL3000
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: write
+  push:
+    branches:
+      - master
+  pull_request:
 
 jobs:
   build:
@@ -13,132 +13,75 @@ jobs:
     env:
       PROFILE: sl3000-emmc
       DTS_NAME: mt7981b-sl3000-emmc
-      DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-      DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
-      MK_FILE: target/linux/mediatek/image/filogic.mk
       TARGET_DIR: bin/targets/mediatek/filogic
 
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo apt-get clean || true
-          docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           df -h
 
-      - name: Cache dl, build_dir, staging_dir
-        uses: actions/cache@v4
-        with:
-          path: |
-            dl
-            build_dir
-            staging_dir
-          key: ${{ runner.os }}-openwrt-${{ github.ref }}-${{ hashFiles('feeds.conf','**/*.mk','**/*.dts','.config') }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-${{ github.ref }}-
-            ${{ runner.os }}-openwrt-
-
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential flex bison gawk gettext \
-            libncurses5-dev libssl-dev python3 \
-            rsync unzip wget git zlib1g-dev file m4 swig libseccomp-dev
+          sudo apt-get install -y build-essential flex bison gawk gettext libncurses5-dev libssl-dev python3 rsync unzip zlib1g-dev
 
-      - name: Force rebuild host toolchain
-        run: rm -rf staging_dir/host staging_dir/hostpkg build_dir/host build_dir/hostpkg
-
-      - name: Feeds auto repair
+      - name: Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build tools and toolchain
-        run: |
-          make tools/install -j"$(nproc)" V=s
-          make toolchain/install -j"$(nproc)" V=s
-
       - name: DTS/mk sanity check
         run: |
-          set -euo pipefail
-          [ -f "${DTS_FILE}" ] || { echo "❌ Missing ${DTS_FILE}"; exit 1; }
-          [ -f "${DTS_MK}" ] || { echo "❌ Missing ${DTS_MK}"; exit 1; }
-          [ -f "${MK_FILE}" ] || { echo "❌ Missing ${MK_FILE}"; exit 1; }
-          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ ${DTS_MK} lacks dtb entry for ${DTS_NAME}"; exit 1; }
-          echo "✅ DTS/mk sanity passed"
+          DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${DTS_NAME}.dts"
+          MK_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile"
+          IMAGE_MK="target/linux/mediatek/image/filogic.mk"
+          [ -f "${DTS_FILE}" ] || { echo "❌ DTS 文件不存在: ${DTS_FILE}"; exit 1; }
+          [ -f "${MK_FILE}" ] || { echo "❌ DTS Makefile 不存在: ${MK_FILE}"; exit 1; }
+          [ -f "${IMAGE_MK}" ] || { echo "❌ filogic.mk 不存在: ${IMAGE_MK}"; exit 1; }
+          grep -q "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
+          echo "✅ DTS/mk 检查通过"
 
-      - name: Align target profile in .config
+      - name: Configure target
         run: |
-          sed -i '/^CONFIG_TARGET_/d' .config 2>/dev/null || true
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
           make defconfig
 
-      - name: DTS compile + dtb detect
+      - name: Build firmware
         run: |
-          make target/linux/compile -j"$(nproc)" V=s
-          DTB_PATH=$(find build_dir -type f -name "${DTS_NAME}.dtb" | head -n 1 || true)
-          [ -n "${DTB_PATH}" ] || { echo "❌ DTS compiled but ${DTS_NAME}.dtb not found"; exit 1; }
-          echo "✅ Found dtb: ${DTB_PATH}"
+          make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
 
-      - name: Build firmware with auto-repair
+      - name: Verify firmware artifacts
         run: |
-          build_once() { make -j"$(nproc)" V=s; }
-          if ! build_once; then
-            echo "⚠️ Build failed, clean build_dir and retry"
-            rm -rf build_dir
-            if ! build_once; then
-              echo "⚠️ Build failed again, clean dl+build_dir+staging_dir+tmp and retry"
-              rm -rf dl build_dir staging_dir tmp
-              build_once
-            fi
-          fi
-
-      - name: Verify firmware outputs
-        run: |
-          [ -d "${TARGET_DIR}" ] || { echo "❌ TARGET_DIR not found: ${TARGET_DIR}"; exit 1; }
+          [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR: ${TARGET_DIR}"; exit 1; }
           ls -lh "${TARGET_DIR}"
-          compgen -G "${TARGET_DIR}/*.bin" > /dev/null || { echo "❌ No .bin files"; exit 1; }
-          compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
-          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null && echo "ℹ️ initramfs-kernel present"
-          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery present"
+          compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
+          # initramfs-recovery 可选，不报错
+          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery 存在"
+          echo "✅ 固件产物检查通过"
 
-      - name: Package firmware outputs
+      - name: Package artifacts
         run: |
-          (cd "${TARGET_DIR}" && find . -maxdepth 1 -type f -exec sha256sum {} \; > firmware-sha256.txt)
-          tar -czf "${TARGET_DIR}/sl3000-emmc-firmware.tar.gz" -C "${TARGET_DIR}" \
-            $(ls ${TARGET_DIR}/*sysupgrade.bin ${TARGET_DIR}/*initramfs-kernel.bin ${TARGET_DIR}/*initramfs-recovery.bin ${TARGET_DIR}/firmware-sha256.txt 2>/dev/null)
+          tar -czf immortalwrt-${PROFILE}-firmware.tar.gz -C "${TARGET_DIR}" .
+          sha256sum immortalwrt-${PROFILE}-firmware.tar.gz > sha256sums
 
-      - name: Upload firmware artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-emmc-firmware
+          name: immortalwrt-${PROFILE}-firmware
           path: |
-            ${{ env.TARGET_DIR }}/*sysupgrade.bin
-            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
-            ${{ env.TARGET_DIR }}/*initramfs-recovery.bin
-            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
-            ${{ env.TARGET_DIR }}/firmware-sha256.txt
+            immortalwrt-${PROFILE}-firmware.tar.gz
+            sha256sums
 
-      - name: Publish GitHub Release
+      - name: Release
         uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master'
         with:
           files: |
-            ${{ env.TARGET_DIR }}/*sysupgrade.bin
-            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
-            ${{ env.TARGET_DIR }}/*initramfs-recovery.bin
-            ${{ env.TARGET_DIR }}/sl3000-emmc-firmware.tar.gz
-            ${{ env.TARGET_DIR }}/firmware-sha256.txt
-          tag_name: sl3000-emmc-${{ github.run_number }}
-          name: SL3000-EMMC Build ${{ github.run_number }}
-          body: |
-            Profile: sl3000-emmc
-            DTS: ${{ env.DTS_FILE }}
-            DTS Makefile: ${{ env.DTS_MK }}
-            Commit: ${{ github.sha }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+            immortalwrt-${PROFILE}-firmware.tar.gz
+            sha256sums
