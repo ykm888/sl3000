@@ -2,7 +2,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include "mt7981.dtsi"
+#include "mt7981-rfb.dts"
 
 / {
     compatible = "sl,3000-emmc", "mediatek,mt7981";
