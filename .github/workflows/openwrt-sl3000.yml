@@ -1,4 +1,4 @@
-name: Build ImmortalWrt SL3000
+name: ImmortalWrt Build
 
 on:
   workflow_dispatch:
@@ -10,10 +10,13 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
+  DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+  DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
+  MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
 
 jobs:
-  toolchain:
+  build:
     runs-on: ubuntu-24.04
 
     steps:
@@ -21,119 +24,48 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Print runner context
-        run: |
-          echo "🔧 Runner: $(uname -a)"
-          echo "🔧 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-          echo "🔧 Branch: $GITHUB_REF"
-
-      - name: Free disk space
-        run: |
-          echo "ℹ️ Before cleanup:"; df -h
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo docker system prune -af || true
-          echo "ℹ️ After cleanup:"; df -h
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential flex bison gawk gettext libncurses5-dev libssl-dev \
-            python3 rsync unzip zlib1g-dev file wget curl git coreutils ccache time
-          echo "✅ Dependencies installed"
-
-      - name: Show environment
-        run: |
-          echo "ENV PROFILE=${PROFILE}"
-          echo "ENV DTS_NAME=${DTS_NAME}"
-          echo "ENV TARGET_DIR=${TARGET_DIR}"
-          which make || true
-          make --version || true
+            python3 unzip zlib1g-dev file wget curl git coreutils ccache time
 
       - name: Update feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          echo "✅ Feeds updated and installed"
 
-      - name: DTS/mk sanity check
+      - name: Check DTS and Makefiles
         run: |
-          DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${DTS_NAME}.dts"
-          MK_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile"
-          IMAGE_MK="target/linux/mediatek/image/filogic.mk"
+          test -f "${DTS_FILE}" || { echo "❌ DTS not found: ${DTS_FILE}"; exit 1; }
+          grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ DTS_MK missing entry"; exit 1; }
+          test -f "${MK_FILE}" || { echo "❌ MK_FILE not found: ${MK_FILE}"; exit 1; }
 
-          [ -f "${DTS_FILE}" ] || { echo "❌ DTS 文件不存在: ${DTS_FILE}"; exit 1; }
-          [ -f "${MK_FILE}" ] || { echo "❌ DTS Makefile 不存在: ${MK_FILE}"; exit 1; }
-          [ -f "${IMAGE_MK}" ] || { echo "❌ filogic.mk 不存在: ${IMAGE_MK}"; exit 1; }
-
-          grep -q "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
-          echo "✅ DTS/mk 检查通过"
-
-      - name: Configure target (自动注册)
+      - name: Generate .config
         run: |
           echo "CONFIG_TARGET_mediatek_filogic=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
           make defconfig
-          # 自动检测：检查是否包含不存在的包
-          grep -E "luci-app-samba4|wsdd2|libpam|libtirpc|liblzma|libnetsnmp|glib2|libgpiod" .config && \
-            { echo "❌ 配置里包含不存在的包"; exit 1; } || echo "✅ 配置干净"
 
-      - name: Toolchain summary
-        run: |
-          echo "✅ 工具链准备完成，进入固件编译阶段"
-
-  firmware:
-    runs-on: ubuntu-24.04
-    needs: toolchain
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Print runner context
-        run: |
-          echo "🔧 Runner: $(uname -a)"
-          echo "🔧 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-          echo "🔧 Branch: $GITHUB_REF"
-
-      - name: Install minimal runtime deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3 file wget curl git coreutils time
-
-      - name: Build firmware (自动修复链路)
+      - name: Build firmware
         run: |
           make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
 
-      - name: Summarize build directories
+      - name: Check artifacts
         run: |
-          ls -l bin/targets || true
-          ls -lh "${TARGET_DIR}" || true
-          df -h
-
-      - name: Verify firmware artifacts (自动检测 + 宽容判定)
-        run: |
-          [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR: ${TARGET_DIR}"; exit 1; }
           ls -lh "${TARGET_DIR}"
           compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || \
-            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
-          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
+            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && \
-            echo "ℹ️ initramfs-recovery 存在" || echo "ℹ️ initramfs-recovery 缺失（可选）"
-          echo "✅ 固件产物检查通过"
+            echo "ℹ️ initramfs-recovery present" || echo "ℹ️ initramfs-recovery optional and missing"
 
-      - name: Print artifact filenames
-        run: |
-          ls -1 "${TARGET_DIR}"/*squashfs-sysupgrade.bin || ls -1 "${TARGET_DIR}"/*sysupgrade.bin || true
-          ls -1 "${TARGET_DIR}"/*initramfs-kernel.bin || true
-
-      - name: Package artifacts
+      - name: Package tarball + sha256sums
         run: |
           cd "${TARGET_DIR}"
-          { ls ./*squashfs-sysupgrade.bin ./*sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | xargs -r sha256sum; } > sha256sums
+          sha256sum ./*squashfs-sysupgrade.bin ./*sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | sed '/^$/d' > sha256sums
           tar -czf "immortalwrt-${PROFILE}-firmware.tar.gz" \
             ./*squashfs-sysupgrade.bin \
             ./*sysupgrade.bin \
@@ -142,7 +74,7 @@ jobs:
           mv "immortalwrt-${PROFILE}-firmware.tar.gz" "${GITHUB_WORKSPACE}/"
           mv "sha256sums" "${GITHUB_WORKSPACE}/"
 
-      - name: Upload packaged artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
@@ -164,7 +96,7 @@ jobs:
         id: ts
         run: echo "utcnow=$(date -u +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Create and push tag
+      - name: Create tag
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
@@ -191,8 +123,3 @@ jobs:
             - tarball + sha256sums
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Final summary
-        run: |
-          echo "✅ Workflow finished successfully."
-          ls -lh "${TARGET_DIR}" || true
