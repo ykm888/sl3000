@@ -39,6 +39,28 @@ jobs:
             build-essential flex bison gawk gettext libncurses5-dev libssl-dev \
             python3 unzip zlib1g-dev file wget curl git coreutils ccache time
 
+      # 缓存 dl、build_dir、staging_dir、tmp
+      - name: Cache build directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            dl
+            build_dir
+            staging_dir
+            tmp
+          key: ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-
+
+      # 缓存 ccache
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ env.PROFILE }}-${{ github.ref }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ env.PROFILE }}-
+
       - name: Force rebuild host toolchain
         run: |
           rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain
@@ -87,7 +109,8 @@ jobs:
       - name: Verify firmware output
         run: |
           ls -lh "${TARGET_DIR}"
-          compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || \
+            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
 
       - name: Upload firmware
@@ -95,6 +118,7 @@ jobs:
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
           path: |
+            ${TARGET_DIR}/*squashfs-sysupgrade.bin
             ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
 
@@ -116,6 +140,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}
           files: |
+            ${TARGET_DIR}/*squashfs-sysupgrade.bin
             ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
           body: |
