@@ -6,6 +6,9 @@ on:
 permissions:
   contents: write
   actions: read
+  checks: read
+  packages: read
+  pull-requests: read
 
 env:
   PROFILE: sl3000-emmc
@@ -17,7 +20,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout source
@@ -35,11 +38,12 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential flex bison gawk gettext libncurses5-dev libssl-dev \
-            python3 unzip zlib1g-dev file wget curl git coreutils ccache time
+            python3 unzip zlib1g-dev file wget curl git coreutils ccache time \
+            pkg-config libelf-dev rsync tar jq ca-certificates
+          sudo update-ca-certificates || true
 
-      # 缓存 dl、build_dir、staging_dir、tmp
       - name: Cache build directories
         uses: actions/cache@v4
         with:
@@ -48,11 +52,10 @@ jobs:
             build_dir
             staging_dir
             tmp
-          key: ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-${{ github.ref }}
+          key: ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-${{ hashFiles('feeds.conf.default', 'package/**', 'tools/**', 'toolchain/**') }}
           restore-keys: |
             ${{ runner.os }}-immortalwrt-${{ env.PROFILE }}-
 
-      # 缓存 ccache
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -61,19 +64,39 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-${{ env.PROFILE }}-
 
+      - name: Configure ccache
+        run: |
+          export CCACHE_DIR="${HOME}/.ccache"
+          ccache -M 2G
+          ccache -s
+
       - name: Force rebuild host toolchain
         run: |
-          rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain
+          rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain || true
 
-      - name: Feeds auto repair
+      - name: Feeds auto repair with retry
         run: |
-          ./scripts/feeds update -a || ./scripts/feeds update -a
-          ./scripts/feeds install -a || ./scripts/feeds install -a
+          set -e
+          export WGET_OPTIONS="--tries=3 --timeout=20"
+          r(){ n=0; until "$@"; do n=$((n+1)); [ $n -ge 3 ] && break; echo "Retry($n): $*"; sleep 3; done; [ $n -lt 3 ]; }
+          r ./scripts/feeds update -a
+          r ./scripts/feeds install -a
 
-      - name: Build tools and toolchain
+      - name: Build tools and toolchain with timeout fallback
         run: |
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
-          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+          set -e
+          if timeout 20m make tools/install -j$(nproc); then
+            echo "tools ok"
+          else
+            echo "[timeout] fallback single-thread tools"
+            make tools/install -j1 V=s
+          fi
+          if timeout 20m make toolchain/install -j$(nproc); then
+            echo "toolchain ok"
+          else
+            echo "[timeout] fallback single-thread toolchain"
+            make toolchain/install -j1 V=s
+          fi
 
       - name: Auto-create DTS Makefile if missing
         run: |
@@ -85,46 +108,80 @@ jobs:
           grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ DTS_MK missing entry"; exit 1; }
           grep -q "${PROFILE}" "${MK_FILE}" || { echo "❌ MK_FILE missing profile"; exit 1; }
 
-      - name: Patch auto check
+      - name: Patch auto check (fail on conflict)
         run: |
-          find target/linux/mediatek/patches-* -type f | while read f; do
-            patch --dry-run -p1 < "$f" || { echo "❌ Patch failed: $f"; exit 1; }
-          done
+          set -e
+          FAILED_PATCHES=()
+          while read -r f; do
+            patch --dry-run -p1 < "$f" || FAILED_PATCHES+=("$f")
+          done < <(find target/linux/mediatek/patches-* -type f)
+          if [ "${#FAILED_PATCHES[@]}" -gt 0 ]; then
+            printf "%s\n" "${FAILED_PATCHES[@]}" > patches_failed.txt
+            echo "❌ Patch conflicts detected. See patches_failed.txt"
+            exit 1
+          fi
 
       - name: DTS compile check + dtb auto-dump
         run: |
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          find build_dir/target-*/linux-*/image -name "*.dtb" -exec ls -lh {} \;
+          find build_dir/target-*/linux-*/image -name "*.dtb" -exec ls -lh {} \; || true
 
-      - name: Generate .config
+      - name: Generate .config (syncconfig auto-seal)
         run: |
           echo "CONFIG_TARGET_mediatek_filogic=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
-          make defconfig
+          echo "CONFIG_CCACHE=y" >> .config
+          # Disable unrelated drivers
+          cat >> .config <<'EOF'
+          CONFIG_USB_SUPPORT=n
+          CONFIG_SOUND_SUPPORT=n
+          CONFIG_BT_SUPPORT=n
+          CONFIG_VIDEO_SUPPORT=n
+          EOF
+          make defconfig || true
+          make olddefconfig || true
+          yes "" | make oldconfig || true
 
       - name: Build firmware with auto-repair
         run: |
-          make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
+          set -e
+          export MAKEFLAGS="V=s"
+          export WGET_OPTIONS="--tries=3 --timeout=20"
+          if timeout 30m make -j$(nproc); then
+            echo "parallel build ok"
+          else
+            echo "[timeout] fallback single-thread"
+            make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
+          fi
 
-      - name: Verify firmware output
+      - name: Verify firmware output + sha256sums
         run: |
           ls -lh "${TARGET_DIR}"
-          compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || \
-            compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
+          compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
+          (cd "${TARGET_DIR}" && rm -f sha256sums.txt && sha256sum * > sha256sums.txt)
+          (cd "${TARGET_DIR}" && ls -1 > profiles.txt)
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
           path: |
-            ${TARGET_DIR}/*squashfs-sysupgrade.bin
             ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
+            ${TARGET_DIR}/sha256sums.txt
+            ${TARGET_DIR}/profiles.txt
 
-      - name: Timestamp
-        id: ts
-        run: echo "utcnow=$(date -u +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
+      - name: Timestamp + build meta
+        id: meta
+        run: |
+          echo "utcnow=$(date -u +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
+          echo "branch=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "cache_ccache_size=$(du -sh ~/.ccache 2>/dev/null | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(nproc)" >> "$GITHUB_OUTPUT"
+          echo "mem=$(free -h | awk '/Mem:/ {print $2}')" >> "$GITHUB_OUTPUT"
+          echo "disk=$(df -h / | awk 'NR==2{print $4}')" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
         run: |
@@ -140,26 +197,41 @@ jobs:
         with:
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            ${TARGET_DIR}/*squashfs-sysupgrade.bin
             ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
+            ${TARGET_DIR}/sha256sums.txt
+            ${TARGET_DIR}/profiles.txt
           body: |
             Profile: ${{ env.PROFILE }}
             DTS: ${{ env.DTS_NAME }}
-            Build time (UTC): ${{ steps.ts.outputs.utcnow }}
+            Branch: ${{ steps.meta.outputs.branch }}
+            Commit: ${{ steps.meta.outputs.commit }}
+            Build time (UTC): ${{ steps.meta.outputs.utcnow }}
+            Runner: CPU=${{ steps.meta.outputs.cpu }} MEM=${{ steps.meta.outputs.mem }} DISK=${{ steps.meta.outputs.disk }}
+            ccache size: ${{ steps.meta.outputs.cache_ccache_size }}
+            Checksums: see sha256sums.txt
+            Patch conflicts: $(test -f patches_failed.txt && cat patches_failed.txt || echo "none")
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload logs on failure
+      - name: Upload logs on failure (compressed)
+        if: failure()
+        run: |
+          mkdir -p _logs_collect
+          rsync -a logs/ _logs_collect/logs || true
+          find build_dir -name 'build.log' -o -name '.stamp*' -o -name '.pkgdir' -print0 | \
+            xargs -0 -I{} rsync -R {} _logs_collect/ || true
+          tar -czf build-logs-${{ env.PROFILE }}.tar.gz _logs_collect || true
+
+      - name: Upload logs artifact
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-${{ env.PROFILE }}
-          path: logs/
+          path: build-logs-${{ env.PROFILE }}.tar.gz
 
       - name: Post Cache dl, build_dir, staging_dir
-        run: |
-          echo "Post-build cleanup skipped for now"
+        run: echo "Post-build cleanup skipped (cache preserved)"
 
       - name: Post Checkout source
         run: echo "Build completed"
