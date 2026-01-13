@@ -18,70 +18,219 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print runner context
+        run: |
+          echo "🔧 Runner: $(uname -a)"
+          echo "🔧 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          echo "🔧 Shell: $SHELL"
+          echo "🔧 Workspace: $GITHUB_WORKSPACE"
+          echo "🔧 Branch: $GITHUB_REF"
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          echo "ℹ️ Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker system prune -af || true
+          echo "ℹ️ After cleanup:"
           df -h
 
       - name: Install dependencies
         run: |
+          set -euo pipefail
+          echo "ℹ️ Update apt indexes"
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison gawk gettext libncurses5-dev libssl-dev python3 rsync unzip zlib1g-dev
+          echo "ℹ️ Install packages"
+          sudo apt-get install -y \
+            build-essential flex bison gawk gettext libncurses5-dev libssl-dev \
+            python3 rsync unzip zlib1g-dev file wget curl git coreutils \
+            ccache time
+          echo "✅ Dependencies installed"
+          gcc --version || true
+          ld --version || true
+
+      - name: Show environment
+        run: |
+          echo "ENV PROFILE=${PROFILE}"
+          echo "ENV DTS_NAME=${DTS_NAME}"
+          echo "ENV TARGET_DIR=${TARGET_DIR}"
+          echo "PATH=$PATH"
+          which make || true
+          make --version || true
 
       - name: Update feeds
         run: |
+          set -euo pipefail
+          echo "ℹ️ Updating feeds..."
           ./scripts/feeds update -a
+          echo "ℹ️ Installing feeds..."
           ./scripts/feeds install -a
+          echo "✅ Feeds updated and installed"
 
       - name: DTS/mk sanity check
         run: |
+          set -euo pipefail
           DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${DTS_NAME}.dts"
           MK_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile"
           IMAGE_MK="target/linux/mediatek/image/filogic.mk"
-          [ -f "${DTS_FILE}" ] || { echo "❌ DTS 文件不存在: ${DTS_FILE}"; exit 1; }
-          [ -f "${MK_FILE}" ] || { echo "❌ DTS Makefile 不存在: ${MK_FILE}"; exit 1; }
-          [ -f "${IMAGE_MK}" ] || { echo "❌ filogic.mk 不存在: ${IMAGE_MK}"; exit 1; }
-          grep -q "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
+
+          echo "ℹ️ DTS_FILE: ${DTS_FILE}"
+          echo "ℹ️ MK_FILE: ${MK_FILE}"
+          echo "ℹ️ IMAGE_MK: ${IMAGE_MK}"
+
+          [ -f "${DTS_FILE}" ] || { echo "❌ DTS 文件不存在: ${DTS_FILE}"; ls -l "$(dirname "${DTS_FILE}")" || true; exit 1; }
+          [ -f "${MK_FILE}" ] || { echo "❌ DTS Makefile 不存在: ${MK_FILE}"; ls -l "$(dirname "${MK_FILE}")" || true; exit 1; }
+          [ -f "${IMAGE_MK}" ] || { echo "❌ filogic.mk 不存在: ${IMAGE_MK}"; ls -l "$(dirname "${IMAGE_MK}")" || true; exit 1; }
+
+          echo "ℹ️ Check Makefile includes ${DTS_NAME}.dtb"
+          grep -n "${DTS_NAME}.dtb" "${MK_FILE}" || { echo "❌ DTS Makefile 未包含 ${DTS_NAME}.dtb"; exit 1; }
           echo "✅ DTS/mk 检查通过"
 
       - name: Configure target
         run: |
-          echo "CONFIG_TARGET_mediatek_filogic=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic_${PROFILE}=y" >> .config
+          set -euo pipefail
+          echo "ℹ️ Writing minimal .config"
+          cat > .config <<EOF
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_${PROFILE}=y
+          EOF
+          echo "ℹ️ Running defconfig"
           make defconfig
+          echo "ℹ️ Final .config (head)"
+          head -n 50 .config || true
+          echo "✅ Configured target"
 
-      - name: Build firmware
+      - name: Show selected profiles
         run: |
-          make -j$(nproc) || make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
+          echo "ℹ️ Grep device selection from .config"
+          grep -E "CONFIG_TARGET|DEVICE|PROFILE" .config || true
+
+      - name: Build firmware (parallel, then verbose fallback)
+        run: |
+          set -e
+          echo "ℹ️ Start build with $(nproc) jobs"
+          if ! make -j"$(nproc)"; then
+            echo "⚠️ Parallel build failed, retry with verbose single job"
+            if ! make -j1 V=s; then
+              echo "⚠️ Second attempt failed, retry with IGNORE_ERRORS=m (last resort)"
+              make -j1 V=s IGNORE_ERRORS=m
+            fi
+          fi
+          echo "✅ Build completed (check artifacts next)"
+
+      - name: Summarize build directories
+        run: |
+          echo "ℹ️ List bin/targets:"
+          ls -l bin/targets || true
+          echo "ℹ️ List target path ${TARGET_DIR}:"
+          ls -lh "${TARGET_DIR}" || true
+          echo "ℹ️ Disk usage after build:"
+          df -h
 
       - name: Verify firmware artifacts
         run: |
+          set -euo pipefail
+          echo "ℹ️ Verify target directory exists: ${TARGET_DIR}"
           [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR: ${TARGET_DIR}"; exit 1; }
+
+          echo "ℹ️ List artifacts:"
           ls -lh "${TARGET_DIR}"
+
+          echo "ℹ️ Check sysupgrade.bin"
           compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
+
+          echo "ℹ️ Check initramfs-kernel.bin"
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
-          # initramfs-recovery 可选，不报错
-          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery 存在"
+
+          echo "ℹ️ Optional: initramfs-recovery.bin"
+          compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery 存在（可选）"
+
           echo "✅ 固件产物检查通过"
+
+      - name: Print artifact filenames
+        run: |
+          echo "ℹ️ sysupgrade.bin files:"
+          ls -1 "${TARGET_DIR}"/*sysupgrade.bin || true
+          echo "ℹ️ initramfs-kernel.bin files:"
+          ls -1 "${TARGET_DIR}"/*initramfs-kernel.bin || true
+
+      - name: Compute SHA256 for key images
+        run: |
+          set -euo pipefail
+          echo "ℹ️ SHA256 (sysupgrade):"
+          for f in "${TARGET_DIR}"/*sysupgrade.bin; do
+            [ -f "$f" ] && sha256sum "$f"
+          done
+          echo "ℹ️ SHA256 (initramfs-kernel):"
+          for f in "${TARGET_DIR}"/*initramfs-kernel.bin; do
+            [ -f "$f" ] && sha256sum "$f"
+          done
 
       - name: Package artifacts
         run: |
+          set -euo pipefail
+          echo "ℹ️ Create tarball from ${TARGET_DIR}"
           tar -czf immortalwrt-${PROFILE}-firmware.tar.gz -C "${TARGET_DIR}" .
+          echo "ℹ️ Tarball size:"
+          ls -lh immortalwrt-${PROFILE}-firmware.tar.gz
+          echo "ℹ️ Compute tarball SHA256"
           sha256sum immortalwrt-${PROFILE}-firmware.tar.gz > sha256sums
+          echo "ℹ️ sha256sums:"
+          cat sha256sums
+          echo "✅ Packaging completed"
 
-      - name: Upload artifacts
+      - name: Upload artifacts (tarball + checksums)
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${PROFILE}-firmware
           path: |
             immortalwrt-${PROFILE}-firmware.tar.gz
             sha256sums
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload raw images (optional convenience)
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-images-${PROFILE}
+          path: |
+            ${TARGET_DIR}/*sysupgrade.bin
+            ${TARGET_DIR}/*initramfs-kernel.bin
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/master'
         with:
+          name: "ImmortalWrt ${PROFILE} $(date +'%Y-%m-%d')"
+          draft: false
+          prerelease: false
           files: |
             immortalwrt-${PROFILE}-firmware.tar.gz
             sha256sums
+          body: |
+            Profile: ${PROFILE}
+            Target dir: ${TARGET_DIR}
+            DTS: ${DTS_NAME}
+            Build time (UTC): $(date -u +'%Y-%m-%d %H:%M:%S')
+            Included:
+            - sysupgrade.bin
+            - initramfs-kernel.bin
+            - tarball + sha256sums
+
+      - name: Final summary
+        run: |
+          echo "✅ Workflow finished successfully."
+          echo "ℹ️ Artifacts uploaded:"
+          echo " - immortalwrt-${PROFILE}-firmware.tar.gz"
+          echo " - sha256sums"
+          echo "ℹ️ Raw images (if present) uploaded as artifact: raw-images-${PROFILE}"
+          echo "📦 Target output dir listing:"
+          ls -lh "${TARGET_DIR}" || true
