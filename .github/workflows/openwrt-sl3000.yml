@@ -79,7 +79,7 @@ jobs:
             ./*initramfs-kernel.bin \
             ./profiles.json ./config.buildinfo ./feeds.buildinfo ./version.buildinfo ./sha256sums
 
-      - name: Upload artifact
+      - name: Upload packaged artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
@@ -96,6 +96,10 @@ jobs:
             ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
           if-no-files-found: warn
+
+      - name: Timestamp
+        id: ts
+        run: echo "utcnow=$(date -u +'%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
         run: |
@@ -117,6 +121,7 @@ jobs:
             Profile: ${{ env.PROFILE }}
             Target dir: ${{ env.TARGET_DIR }}
             DTS: ${{ env.DTS_NAME }}
+            Build time (UTC): ${{ steps.ts.outputs.utcnow }}
             Included:
             - sysupgrade.bin
             - initramfs-kernel.bin
