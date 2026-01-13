@@ -108,17 +108,21 @@ jobs:
           grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ DTS_MK missing entry"; exit 1; }
           grep -q "${PROFILE}" "${MK_FILE}" || { echo "❌ MK_FILE missing profile"; exit 1; }
 
-      - name: Patch auto check (fail on conflict)
+      - name: Patch auto check (skip if no patches)
         run: |
           set -e
-          FAILED_PATCHES=()
-          while read -r f; do
-            patch --dry-run -p1 < "$f" || FAILED_PATCHES+=("$f")
-          done < <(find target/linux/mediatek/patches-* -type f)
-          if [ "${#FAILED_PATCHES[@]}" -gt 0 ]; then
-            printf "%s\n" "${FAILED_PATCHES[@]}" > patches_failed.txt
-            echo "❌ Patch conflicts detected. See patches_failed.txt"
-            exit 1
+          if ls target/linux/mediatek/patches-* 1>/dev/null 2>&1; then
+            FAILED_PATCHES=()
+            while read -r f; do
+              patch --dry-run -p1 < "$f" || FAILED_PATCHES+=("$f")
+            done < <(find target/linux/mediatek/patches-* -type f)
+            if [ "${#FAILED_PATCHES[@]}" -gt 0 ]; then
+              printf "%s\n" "${FAILED_PATCHES[@]}" > patches_failed.txt
+              echo "❌ Patch conflicts detected. See patches_failed.txt"
+              exit 1
+            fi
+          else
+            echo "ℹ️ No patch directory found, skipping patch check."
           fi
 
       - name: DTS compile check + dtb auto-dump
