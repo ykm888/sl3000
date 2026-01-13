@@ -77,16 +77,6 @@ jobs:
           make defconfig
           head -n 50 .config || true
 
-      - name: Cache toolchain (ccache dir)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.ccache
-            build_dir/toolchain
-          key: toolchain-${{ runner.os }}-${{ hashFiles('toolchain/**', '.config') }}
-          restore-keys: |
-            toolchain-${{ runner.os }}-
-
       - name: Toolchain summary
         run: |
           echo "✅ 工具链准备完成，开始固件编译阶段"
@@ -107,20 +97,10 @@ jobs:
           echo "🔧 Date: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           echo "🔧 Branch: $GITHUB_REF"
 
-      - name: Install dependencies (minimal runtime)
+      - name: Install minimal runtime deps
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential python3 file wget curl git coreutils time
-
-      - name: Restore toolchain cache (best-effort)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.ccache
-            build_dir/toolchain
-          key: toolchain-${{ runner.os }}-${{ hashFiles('toolchain/**', '.config') }}
-          restore-keys: |
-            toolchain-${{ runner.os }}-
 
       - name: Build firmware
         run: |
@@ -136,7 +116,7 @@ jobs:
         run: |
           [ -d "${TARGET_DIR}" ] || { echo "❌ 未找到 TARGET_DIR: ${TARGET_DIR}"; exit 1; }
           ls -lh "${TARGET_DIR}"
-          # 宽容匹配：支持 *squashfs-sysupgrade.bin 与通配的 *sysupgrade.bin
+          # 宽容匹配，优先 squashfs-sysupgrade
           compgen -G "${TARGET_DIR}/*squashfs-sysupgrade.bin" > /dev/null || compgen -G "${TARGET_DIR}/*sysupgrade.bin" > /dev/null || { echo "❌ 缺少 sysupgrade.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-kernel.bin" > /dev/null || { echo "❌ 缺少 initramfs-kernel.bin"; exit 1; }
           compgen -G "${TARGET_DIR}/*initramfs-recovery.bin" > /dev/null && echo "ℹ️ initramfs-recovery 存在" || echo "ℹ️ initramfs-recovery 缺失（可选）"
@@ -144,26 +124,17 @@ jobs:
 
       - name: Print artifact filenames
         run: |
-          ls -1 "${TARGET_DIR}"/*sysupgrade.bin || true
+          ls -1 "${TARGET_DIR}"/*squashfs-sysupgrade.bin || ls -1 "${TARGET_DIR}"/*sysupgrade.bin || true
           ls -1 "${TARGET_DIR}"/*initramfs-kernel.bin || true
-
-      - name: Compute SHA256 for key images
-        run: |
-          for f in "${TARGET_DIR}"/*sysupgrade.bin "${TARGET_DIR}"/*squashfs-sysupgrade.bin; do
-            [ -f "$f" ] && sha256sum "$f"
-          done
-          for f in "${TARGET_DIR}"/*initramfs-kernel.bin; do
-            [ -f "$f" ] && sha256sum "$f"
-          done
 
       - name: Package artifacts
         run: |
-          # 打包前先在目标目录生成 sha256sums，随后把打包文件移动到仓库根，便于上传/Release
           cd "${TARGET_DIR}"
-          sha256sum ./*sysupgrade.bin ./*squashfs-sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | sed '/^$/d' > sha256sums
+          # 只计算存在的目标，避免空输出
+          { ls ./*squashfs-sysupgrade.bin ./*sysupgrade.bin ./*initramfs-kernel.bin 2>/dev/null | xargs -r sha256sum; } > sha256sums
           tar -czf "immortalwrt-${PROFILE}-firmware.tar.gz" \
-            ./*sysupgrade.bin \
             ./*squashfs-sysupgrade.bin \
+            ./*sysupgrade.bin \
             ./*initramfs-kernel.bin \
             ./profiles.json ./config.buildinfo ./feeds.buildinfo ./version.buildinfo ./sha256sums
           mv "immortalwrt-${PROFILE}-firmware.tar.gz" "${GITHUB_WORKSPACE}/"
@@ -182,8 +153,8 @@ jobs:
         with:
           name: raw-images-${{ env.PROFILE }}
           path: |
-            ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*squashfs-sysupgrade.bin
+            ${TARGET_DIR}/*sysupgrade.bin
             ${TARGET_DIR}/*initramfs-kernel.bin
           if-no-files-found: warn
 
