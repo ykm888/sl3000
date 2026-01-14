@@ -3,19 +3,6 @@
 
 DTS_DIR := $(DTS_DIR)
 
-define Image/Prepare
-	rm -f $(KDIR)/ubi_mark
-	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
-endef
-
-define Build/mt7981-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
-endef
-
-define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
-endef
-
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
 	ptgen -g -o $@.tmp -a 1 -l 1024 \
@@ -61,9 +48,8 @@ define Device/sl3000-emmc
     kmod-dsa \
     kmod-dsa-mt7530 \
     luci \
-    luci-theme-argon \
-    docker dockerd docker-compose containerd runc \
-    lxc lxc-templates cgroupfs-mount
+    luci-theme-bootstrap \
+    fstools block-mount
 
   IMAGES := sysupgrade.bin initramfs-kernel.bin
 
