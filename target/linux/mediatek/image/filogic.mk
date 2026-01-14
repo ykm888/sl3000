@@ -33,11 +33,12 @@ metadata_gl_json = \
 			"revision": "$(call json_quote,$(REVISION))", \
 			"target": "$(call json_quote,$(TARGETID))", \
 			"board": "$(call json_quote,$(if $(BOARD_NAME),$(BOARD_NAME),$(DEVICE_NAME)))" \
-		} \
+		}, \
+		"supported_devices": ["$(SUPPORTED_DEVICES)"] \
 	}'
 
 define Build/append-gl-metadata
-	$(if $(SUPPORTED_DEVICES),echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
+	$(if $(SUPPORTED_DEVICES),echo $(metadata_gl_json) | fwtool -I - $@)
 	sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
 endef
 
@@ -64,13 +65,13 @@ define Device/sl3000-emmc
     docker dockerd docker-compose containerd runc \
     lxc lxc-templates cgroupfs-mount
 
-  IMAGES := sysupgrade.bin initramfs-recovery.bin
+  IMAGES := sysupgrade.bin initramfs-kernel.bin
 
   KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | \
         fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
 
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata
-  IMAGE/initramfs-recovery.bin := append-gl-metadata
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata | mt798x-gpt
+  IMAGE/initramfs-kernel.bin := append-dtb | uImage lzma
 endef
 TARGET_DEVICES += sl3000-emmc
