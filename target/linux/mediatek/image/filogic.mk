@@ -37,7 +37,7 @@ metadata_gl_json = \
 	}'
 
 define Build/append-gl-metadata
-	$(if $(SUPPORTED_DEVICES),-echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
+	$(if $(SUPPORTED_DEVICES),echo $(call metadata_gl_json,$(SUPPORTED_DEVICES)) | fwtool -I - $@)
 	sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
 endef
 
@@ -74,5 +74,3 @@ define Device/sl3000-emmc
   IMAGE/initramfs-recovery.bin := append-gl-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
-
-
