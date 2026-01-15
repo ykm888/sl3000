@@ -92,6 +92,9 @@ jobs:
       - name: Clean target/linux
         run: make target/linux/clean
 
+      - name: DTS sanity check
+        run: dtc -I dts -O dtb "${DTS_FILE}" -o /tmp/test.dtb
+
       - name: DTS compile check + dtb auto-dump
         run: |
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
@@ -103,12 +106,9 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
-          # 禁用缺失依赖的包
-          echo "# CONFIG_PACKAGE_luci-app-advanced-reboot is not set" >> .config
-          echo "# CONFIG_PACKAGE_onionshare-cli is not set" >> .config
-          make defconfig || true
-          make olddefconfig || true
-          yes "" | make oldconfig || true
+          make defconfig
+          make olddefconfig
+          yes "" | make oldconfig
 
       - name: Build firmware with auto-repair
         run: |
