@@ -50,8 +50,8 @@ define Device/sl3000-emmc
     kmod-mmc-mtk \
     kmod-mmc-spi
 
-  # 固件镜像定义：生成 sysupgrade.bin 并带 GPT 分区表
-  IMAGE/sysupgrade.bin := sysupgrade.bin | append-metadata | mt798x-gpt
+  # 固件镜像定义：使用 append-rootfs 与 DTS 的 fixed-partitions 对齐
+  IMAGE/sysupgrade.bin := sysupgrade.bin | append-metadata | append-rootfs
 
   # 支持设备列表
   SUPPORTED_DEVICES := sl3000-emmc
