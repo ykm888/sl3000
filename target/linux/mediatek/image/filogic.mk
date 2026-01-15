@@ -33,12 +33,7 @@ define Device/sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := EMMC
-
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
-
-  SUPPORTED_DEVICES := sl3000-emmc
-
   DEVICE_PACKAGES := \
     kmod-usb3 \
     kmod-mt76 \
@@ -49,15 +44,17 @@ define Device/sl3000-emmc
     kmod-dsa-mt7530 \
     luci \
     luci-theme-bootstrap \
-    fstools block-mount
+    fstools \
+    block-mount \
+    kmod-mmc \
+    kmod-mmc-mtk \
+    kmod-mmc-spi
 
-  IMAGES := sysupgrade.bin initramfs-kernel.bin
+  # 固件镜像定义：生成 sysupgrade.bin 并带 GPT 分区表
+  IMAGE/sysupgrade.bin := sysupgrade.bin | append-metadata | mt798x-gpt
 
-  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
-        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata | append-gl-metadata | mt798x-gpt
-  IMAGE/initramfs-kernel.bin := append-dtb | uImage lzma
+  # 支持设备列表
+  SUPPORTED_DEVICES := sl3000-emmc
 endef
+
 TARGET_DEVICES += sl3000-emmc
