@@ -42,7 +42,6 @@ jobs:
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates
           sudo update-ca-certificates || true
 
-      # ✅ 缓存 dl（源码包）
       - name: Cache dl
         uses: actions/cache@v4
         with:
@@ -51,7 +50,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-dl
 
-      # ✅ 缓存 ccache（编译缓存）
       - name: Cache ccache
         uses: actions/cache@v4
         with:
@@ -66,7 +64,7 @@ jobs:
           ccache -s
 
       - name: Force rebuild host toolchain
-        run: rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain || true
+        run: rm -rf stagingdir/toolchain-* stagingdir/host pkginfo/toolchain || true
 
       - name: Feeds auto repair with retry
         run: |
@@ -89,7 +87,10 @@ jobs:
         run: |
           test -f "${DTS_FILE}" || { echo "❌ DTS not found: ${DTS_FILE}"; exit 1; }
           grep -q "${DTS_NAME}.dtb" "${DTS_MK}" || { echo "❌ DTS_MK missing entry"; exit 1; }
-          grep -q "${PROFILE}" "${MK_FILE}" || { echo "❌ MK_FILE missing profile"; exit 1; }
+          grep -q "${PROFILE}" "${MK_FILE}" || { echo "❌ MKFILE missing profile"; exit 1; }
+
+      - name: Clean target/linux
+        run: make target/linux/clean
 
       - name: DTS compile check + dtb auto-dump
         run: |
@@ -102,6 +103,9 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
+          # 禁用缺失依赖的包
+          echo "# CONFIG_PACKAGE_luci-app-advanced-reboot is not set" >> .config
+          echo "# CONFIG_PACKAGE_onionshare-cli is not set" >> .config
           make defconfig || true
           make olddefconfig || true
           yes "" | make oldconfig || true
@@ -141,12 +145,12 @@ jobs:
           TAG="immortalwrt-${PROFILE}-$(date -u +'%Y%m%d%H%M%S')"
           git tag "${TAG}"
           git push origin "${TAG}"
-          echo "TAG_NAME=${TAG}" >> "$GITHUB_ENV"
+          echo "TAGNAME=${TAG}" >> "$GITHUB_ENV"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_NAME }}
+          tag_name: ${{ env.TAGNAME }}
           files: |
             ${{ env.TARGET_DIR }}/*sysupgrade.bin
             ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
