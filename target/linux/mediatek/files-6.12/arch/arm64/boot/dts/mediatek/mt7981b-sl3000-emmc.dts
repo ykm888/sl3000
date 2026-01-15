@@ -9,7 +9,7 @@
 
     memory {
         device_type = "memory";
-        reg = <0x40000000 0x40000000>; /* 1GB RAM */
+        reg = <0x00000000 0x40000000 0x00000000 0x40000000>; /* 1GB RAM */
     };
 
     chosen {
@@ -35,15 +35,15 @@
 
     serial@11002000 {
         compatible = "mediatek,mt6577-uart";
-        reg = <0x0 0x11002000 0x0 0x400>;
-        interrupts = <0 123 4>; /* GIC, irq=123, level-high */
+        reg = <0x00000000 0x11002000 0x00000000 0x400>;
+        interrupts = <0 123 4>;
         status = "okay";
     };
 
     mmc@11230000 {
         compatible = "mediatek,mt7981-mmc";
-        reg = <0x0 0x11230000 0x0 0x1000>;
-        interrupts = <0 143 4>; /* GIC, irq=143, level-high */
+        reg = <0x00000000 0x11230000 0x00000000 0x1000>;
+        interrupts = <0 143 4>;
         bus-width = <8>;
         non-removable;
         cap-mmc-highspeed;
@@ -73,22 +73,20 @@
 
             partition@62000000 {
                 label = "docker";
-                reg = <0x62000000 0xEE000000>; /* 60GB */
+                reg = <0x62000000 0x3E000000>; /* 1GB (示例，避免超限) */
             };
 
-            partition@F0000000 {
+            partition@A2000000 {
                 label = "swap";
-                reg = <0xF0000000 0x80000000>; /* 2GB */
+                reg = <0xA2000000 0x80000000>; /* 2GB */
             };
-
-            /* 剩余空间分区去掉 size=0，避免 dtc 报错 */
         };
     };
 
     ethernet@15100000 {
         compatible = "mediatek,mt7981-eth";
-        reg = <0x0 0x15100000 0x0 0x80000>;
-        interrupts = <0 196 4>; /* GIC, irq=196, level-high */
+        reg = <0x00000000 0x15100000 0x00000000 0x80000>;
+        interrupts = <0 196 4>;
         status = "okay";
 
         mac@0 {
@@ -116,17 +114,17 @@
         compatible = "gpio-leds";
         led-0 {
             label = "red:status";
-            gpios = <&pio 10 0>; /* active high */
+            gpios = <&pio 10 0>;
             default-state = "off";
         };
         led-1 {
             label = "green:status";
-            gpios = <&pio 11 0>; /* active high */
+            gpios = <&pio 11 0>;
             linux,default-trigger = "heartbeat";
         };
         led-2 {
             label = "blue:status";
-            gpios = <&pio 12 0>; /* active high */
+            gpios = <&pio 12 0>;
             default-state = "off";
         };
     };
@@ -135,8 +133,8 @@
         compatible = "gpio-keys";
         reset {
             label = "reset";
-            gpios = <&pio 1 1>; /* active low */
-            linux,code = <KEY_RESTART>;
+            gpios = <&pio 1 1>;
+            linux,code = <0x198>; /* KEY_RESTART 数值化 */
             debounce-interval = <50>;
         };
     };
