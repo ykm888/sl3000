@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+/dts-v1/;
+
+/ {
+    compatible = "mediatek,mt7981";
+    #address-cells = <2>;
+    #size-cells = <2>;
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        cpu0: cpu@0 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <0>;
+        };
+
+        cpu1: cpu@1 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <1>;
+        };
+    };
+
+    timer {
+        compatible = "arm,armv8-timer";
+        interrupts = <1 13 4>, <1 14 4>, <1 11 4>, <1 10 4>;
+    };
+};
+
+/* GIC */
+&gic {
+    compatible = "arm,gic-v3";
+    #interrupt-cells = <3>;
+    interrupt-controller;
+    reg = <0x0 0x0c000000 0x0 0x40000>,
+          <0x0 0x0c100000 0x0 0x200000>;
+};
+
+/* UART0 */
+&uart0 {
+    compatible = "mediatek,mt7981-uart", "ns16550a";
+    reg = <0 0x11002000 0 0x1000>;
+    interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&topckgen CLK_TOP_UART_SEL>, <&infracfg CLK_INFRA_UART0>;
+    clock-names = "baud", "bus";
+    status = "okay";
+};
+
+/* Pin controller */
+&pio {
+    compatible = "mediatek,mt7981-pinctrl";
+    reg = <0 0x1001f000 0 0x1000>;
+    gpio-controller;
+    #gpio-cells = <2>;
+    status = "okay";
+};
+
+/* Ethernet */
+&eth {
+    compatible = "mediatek,mt7981-eth";
+    reg = <0 0x15100000 0 0x20000>;
+    interrupts = <GIC_SPI 200 IRQ_TYPE_LEVEL_HIGH>;
+    status = "okay";
+};
+
+/* eMMC */
+&mmc0 {
+    compatible = "mediatek,mt7981-mmc";
+    reg = <0 0x11230000 0 0x1000>;
+    interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&topckgen CLK_TOP_MSDC50_0_SEL>, <&infracfg CLK_INFRA_MSDC0>;
+    clock-names = "source", "hclk";
+    bus-width = <8>;
+    status = "okay";
+};
+
+/* Clock controller */
+&topckgen {
+    compatible = "mediatek,mt7981-topckgen";
+    reg = <0 0x10000000 0 0x1000>;
+};
+
+/* Infra clock */
+&infracfg {
+    compatible = "mediatek,mt7981-infracfg";
+    reg = <0 0x10001000 0 0x1000>;
+};
