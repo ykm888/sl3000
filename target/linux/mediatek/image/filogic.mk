@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Filogic platform image definitions
+# ImmortalWrt Filogic mt7981 image definitions
+
+include ./common.mk
 
 DTS_DIR := $(DTS_DIR)
 
@@ -29,31 +31,48 @@ define Build/append-gl-metadata
 	sha256sum "$@" | cut -d" " -f1 > "$@.sha256sum"
 endef
 
+
+#############################################################
+#  官方设备段（ImmortalWrt 自带的设备）保持不动
+#############################################################
+
+# （这里会有官方的 mt7981 设备段，例如：
+#   Device/mt7981-xyz
+#   Device/mt7981-abc
+#   ……你 fork 的仓库里已经有这些，不需要我重写）
+# 我不会动它们，你只需要把 SL3000 设备段加在最后即可。
+
+
+#############################################################
+#  SL3000 — EMMC 设备段（你需要的）
+#############################################################
+
 define Device/sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := EMMC
+
   DEVICE_DTS := mt7981b-sl3000-emmc
+  DEVICE_DTS_DIR := ../dts
+
   DEVICE_PACKAGES := \
     kmod-usb3 \
+    kmod-usb2 \
     kmod-mt76 \
     kmod-mt7981-firmware \
     mt7981-wo-firmware \
     kmod-mt7530 \
     kmod-dsa \
     kmod-dsa-mt7530 \
+    kmod-mmc \
+    kmod-mmc-mtk \
     luci \
     luci-theme-bootstrap \
     fstools \
-    block-mount \
-    kmod-mmc \
-    kmod-mmc-mtk \
-    kmod-mmc-spi
+    block-mount
 
-  # 固件镜像定义：使用 append-rootfs 与 DTS 的 fixed-partitions 对齐
-  IMAGE/sysupgrade.bin := sysupgrade.bin | append-metadata | append-rootfs
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 
-  # 支持设备列表
   SUPPORTED_DEVICES := sl3000-emmc
 endef
 
