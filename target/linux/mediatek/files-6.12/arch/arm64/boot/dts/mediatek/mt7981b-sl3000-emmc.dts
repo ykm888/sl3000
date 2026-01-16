@@ -1,68 +1,139 @@
 /* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
 /dts-v1/;
+
+#include "mt7981b.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
-#include "mt7981b.dtsi"
 
 / {
     model = "SL-3000 eMMC Router";
     compatible = "sl3000-emmc", "mediatek,mt7981";
-
+    
     aliases {
         serial0 = &uart0;
-        mmc0 = &mmc0;
+        serial1 = &uart1;
+        mmc0    = &mmc0;
+        ethernet0 = &gmac0;
+        ethernet1 = &gmac1;
     };
 
     chosen {
         stdout-path = "serial0:115200n8";
-        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
+        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=/dev/mtdblock7 rootfstype=squashfs";
     };
 
     memory@40000000 {
         device_type = "memory";
-        reg = <0x40000000 0x40000000>;
+        reg = <0x40000000 0x40000000>; /* 1GB RAM */
     };
 
     gpio-keys {
         compatible = "gpio-keys";
-
+        
         reset {
             label = "reset";
             linux,code = <KEY_RESTART>;
             gpios = <&pio 1 GPIO_ACTIVE_LOW>;
             debounce-interval = <50>;
         };
-
+        
         wps {
             label = "wps";
             linux,code = <KEY_WPS_BUTTON>;
             gpios = <&pio 0 GPIO_ACTIVE_HIGH>;
+            debounce-interval = <50>;
         };
     };
 
     leds {
         compatible = "gpio-leds";
-
-        led-0 {
+        
+        led-red {
             label = "red:status";
             gpios = <&pio 10 GPIO_ACTIVE_LOW>;
             default-state = "off";
         };
-
-        led-1 {
+        
+        led-green {
             label = "green:status";
             gpios = <&pio 11 GPIO_ACTIVE_LOW>;
             linux,default-trigger = "heartbeat";
         };
-
-        led-2 {
+        
+        led-blue {
             label = "blue:status";
             gpios = <&pio 12 GPIO_ACTIVE_LOW>;
             default-state = "off";
         };
     };
 
+    /* SPI Flash - 32MB (用于启动和系统) */
+    spi@1100a000 {
+        compatible = "mediatek,mt7981-spi";
+        reg = <0x1100a000 0x100>;
+        interrupts = <GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&topckgen CLK_TOP_SPI>;
+        clock-names = "spi";
+        #address-cells = <1>;
+        #size-cells = <0>;
+        status = "okay";
+
+        spi_nand: flash@0 {
+            compatible = "spi-nand";
+            reg = <0>;
+            spi-max-frequency = <52000000>;
+            spi-tx-buswidth = <4>;
+            spi-rx-buswidth = <4>;
+
+            partitions {
+                compatible = "fixed-partitions";
+                #address-cells = <1>;
+                #size-cells = <1>;
+
+                /* U-Boot分区 - 1MB */
+                partition@0 {
+                    label = "u-boot";
+                    reg = <0x000000 0x100000>;
+                    read-only;
+                };
+
+                /* U-Boot环境变量 - 128KB */
+                partition@100000 {
+                    label = "u-boot-env";
+                    reg = <0x100000 0x20000>;
+                };
+
+                /* 工厂数据 - 256KB */
+                partition@120000 {
+                    label = "factory";
+                    reg = <0x120000 0x40000>;
+                    read-only;
+                };
+
+                /* FIP分区 - 2MB */
+                partition@160000 {
+                    label = "fip";
+                    reg = <0x160000 0x200000>;
+                    read-only;
+                };
+
+                /* 内核分区 - 10MB */
+                partition@360000 {
+                    label = "kernel";
+                    reg = <0x360000 0xa00000>;
+                };
+
+                /* 根文件系统分区 - 剩余约18MB */
+                partition@d60000 {
+                    label = "ubi";
+                    reg = <0xd60000 0x1d20000>;
+                };
+            };
+        };
+    };
+
+    /* 128GB eMMC - 用于数据存储 */
     mmc0: mmc@11230000 {
         compatible = "mediatek,mt7981-mmc";
         reg = <0x11230000 0x1000>;
@@ -70,87 +141,106 @@
         bus-width = <8>;
         non-removable;
         cap-mmc-highspeed;
+        cap-sd-highspeed;
         max-frequency = <50000000>;
-        pinctrl-names = "default";
+        pinctrl-names = "default", "state_uhs";
+        pinctrl-0 = <&mmc0_pins_default>;
+        pinctrl-1 = <&mmc0_pins_uhs>;
         status = "okay";
 
         partitions {
             compatible = "fixed-partitions";
-            #address-cells = <1>;
-            #size-cells = <1>;
+            #address-cells = <2>;
+            #size-cells = <2>;
 
+            /* 数据分区 - 整个128GB作为数据存储 */
             partition@0 {
-                label = "kernel";
-                reg = <0x00000000 0x02000000>;
-            };
-
-            partition@2000000 {
-                label = "rootfs";
-                reg = <0x02000000 0x20000000>;
-            };
-
-            partition@22000000 {
-                label = "rootfs_data";
-                reg = <0x22000000 0x80000000>;
-            };
-
-            partition@a2000000 {
-                label = "docker";
-                reg = <0x0a200000 0x1900000000>;
-            };
-
-            partition@a220000000 {
-                label = "swap";
-                reg = <0xa220000000 0x500000000>;
-            };
-
-            partition@a720000000 {
-                label = "reserved";
-                reg = <0xa720000000 0x140000000>;
+                label = "userdata";
+                reg = <0x0 0x0 0x20 0x0>; /* 128GB */
             };
         };
     };
 
-    ethernet@15100000 {
+    /* 以太网控制器 */
+    ethernet: ethernet@15100000 {
         compatible = "mediatek,mt7981-eth";
         reg = <0x15100000 0x80000>;
         interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+        mediatek,ethsys = <&ethsys>;
         status = "okay";
 
-        mac@0 {
+        gmac0: mac@0 {
             compatible = "mediatek,eth-mac";
             reg = <0>;
             phy-mode = "2500base-x";
-
             fixed-link {
                 speed = <2500>;
                 full-duplex;
+                pause;
             };
         };
 
-        mac@1 {
+        gmac1: mac@1 {
             compatible = "mediatek,eth-mac";
             reg = <1>;
-            phy-mode = "2500base-x";
-
+            phy-mode = "sgmii";
             fixed-link {
-                speed = <2500>;
+                speed = <1000>;
                 full-duplex;
+                pause;
+            };
+        };
+
+        mdio: mdio-bus {
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            /* 4个千兆网口对应的PHY */
+            phy0: ethernet-phy@0 {
+                reg = <0>;
+                phy-mode = "sgmii";
+            };
+            
+            phy1: ethernet-phy@1 {
+                reg = <1>;
+                phy-mode = "sgmii";
+            };
+            
+            phy2: ethernet-phy@2 {
+                reg = <2>;
+                phy-mode = "sgmii";
+            };
+            
+            phy3: ethernet-phy@3 {
+                reg = <3>;
+                phy-mode = "sgmii";
             };
         };
     };
 
+    /* 加密引擎 */
     crypto: crypto@1f000000 {
         compatible = "mediatek,crypto";
         reg = <0x1f000000 0x1000>;
         status = "okay";
     };
+
+    /* WiFi - 需要添加WiFi 6相关节点 */
+    &wifi {
+        status = "okay";
+    };
 };
 
+/* 串口 */
 &uart0 {
     status = "okay";
 };
 
+&uart1 {
+    status = "disabled";
+};
+
+/* USB */
 &usb_phy {
     status = "okay";
 };
@@ -159,5 +249,85 @@
     status = "okay";
 };
 
+/* 引脚配置 */
+&pio {
+    mmc0_pins_default: mmc0-default {
+        pins-clk {
+            pinmux = <MT7981_PIN_52_MSDC0_CLK_FUNC_MSDC0_CLK>;
+            bias-pull-down;
+        };
+        
+        pins-cmd-data {
+            pinmux = <MT7981_PIN_53_MSDC0_CMD_FUNC_MSDC0_CMD>,
+                     <MT7981_PIN_54_MSDC0_DAT0_FUNC_MSDC0_DAT0>,
+                     <MT7981_PIN_55_MSDC0_DAT1_FUNC_MSDC0_DAT1>,
+                     <MT7981_PIN_56_MSDC0_DAT2_FUNC_MSDC0_DAT2>,
+                     <MT7981_PIN_57_MSDC0_DAT3_FUNC_MSDC0_DAT3>,
+                     <MT7981_PIN_58_MSDC0_DAT4_FUNC_MSDC0_DAT4>,
+                     <MT7981_PIN_59_MSDC0_DAT5_FUNC_MSDC0_DAT5>,
+                     <MT7981_PIN_60_MSDC0_DAT6_FUNC_MSDC0_DAT6>,
+                     <MT7981_PIN_61_MSDC0_DAT7_FUNC_MSDC0_DAT7>;
+            bias-pull-up;
+        };
+        
+        pins-rst {
+            pinmux = <MT7981_PIN_62_MSDC0_RSTB_FUNC_MSDC0_RSTB>;
+            bias-pull-up;
+        };
+    };
 
+    mmc0_pins_uhs: mmc0-uhs {
+        pins-clk {
+            pinmux = <MT7981_PIN_52_MSDC0_CLK_FUNC_MSDC0_CLK>;
+            drive-strength = <MTK_DRIVE_6mA>;
+            bias-pull-down;
+        };
+        
+        pins-cmd-data {
+            pinmux = <MT7981_PIN_53_MSDC0_CMD_FUNC_MSDC0_CMD>,
+                     <MT7981_PIN_54_MSDC0_DAT0_FUNC_MSDC0_DAT0>,
+                     <MT7981_PIN_55_MSDC0_DAT1_FUNC_MSDC0_DAT1>,
+                     <MT7981_PIN_56_MSDC0_DAT2_FUNC_MSDC0_DAT2>,
+                     <MT7981_PIN_57_MSDC0_DAT3_FUNC_MSDC0_DAT3>,
+                     <MT7981_PIN_58_MSDC0_DAT4_FUNC_MSDC0_DAT4>,
+                     <MT7981_PIN_59_MSDC0_DAT5_FUNC_MSDC0_DAT5>,
+                     <MT7981_PIN_60_MSDC0_DAT6_FUNC_MSDC0_DAT6>,
+                     <MT7981_PIN_61_MSDC0_DAT7_FUNC_MSDC0_DAT7>;
+            drive-strength = <MTK_DRIVE_6mA>;
+            bias-pull-up;
+        };
+    };
+    
+    /* 以太网引脚配置 */
+    gmac0_mdio_pins: gmac0-mdio-pins {
+        mux {
+            function = "eth";
+            groups = "mdc_mdio";
+        };
+    };
+    
+    gmac1_mdio_pins: gmac1-mdio-pins {
+        mux {
+            function = "eth";
+            groups = "mdc_mdio";
+        };
+    };
+};
 
+/* 时钟 */
+&topckgen {
+    status = "okay";
+};
+
+&ethsys {
+    status = "okay";
+};
+
+/* WiFi 6芯片 - 需要根据实际芯片型号添加 */
+/*
+&wmac {
+    status = "okay";
+    mediatek,mtd-eeprom = <&factory 0x0000>;
+    mediatek,disable-radar-background;
+};
+*/
