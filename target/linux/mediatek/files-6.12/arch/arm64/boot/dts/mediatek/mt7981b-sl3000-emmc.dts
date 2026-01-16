@@ -1,9 +1,4 @@
-/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
-/*
- * DTS for SL-3000 (MT7981B, 1GB DDR, 128GB eMMC)
- */
-
- /dts-v1/;
+/dts-v1/;
 #include "mt7981b.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -25,7 +20,7 @@
 
      memory@40000000 {
          device_type = "memory";
-         reg = <0x40000000 0x40000000>; /* 1GB DDR */
+         reg = <0x40000000 0x40000000>;
      };
 
      gpio-keys {
@@ -95,17 +90,17 @@
 
              partition@a2000000 {
                  label = "docker";
-                 reg = <0xa2000000 0x640000000>; /* 100GB */
+                 reg = <0xa2000000 0x1900000000>; /* 100GB */
              };
 
-             partition@6e2000000 {
+             partition@a220000000 {
                  label = "swap";
-                 reg = <0x6e2000000 0x50000000>; /* 20GB */
+                 reg = <0xa220000000 0x500000000>; /* 20GB */
              };
 
-             partition@732000000 {
+             partition@a720000000 {
                  label = "reserved";
-                 reg = <0x732000000 0x140000000>; /* 5GB */
+                 reg = <0xa720000000 0x140000000>; /* 5GB */
              };
          };
      };
