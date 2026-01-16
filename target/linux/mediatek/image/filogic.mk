@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # ImmortalWrt Filogic mt7981 image definitions
 
-include ./common.mk
+include ./filogic.mk
 
 DTS_DIR := $(DTS_DIR)
 
@@ -37,3 +37,4 @@ define Device/sl3000-emmc
 endef
 
 TARGET_DEVICES += sl3000-emmc
+
