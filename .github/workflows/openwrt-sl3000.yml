@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
-            ccache time pkg-config libelf-dev rsync tar jq ca-certificates
+            ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
           sudo update-ca-certificates || true
 
       - name: Cache dl
@@ -106,6 +106,7 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${PROFILE}=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_GCC_USE_LIBQUADMATH=n" >> .config
           make defconfig
           make olddefconfig
           yes "" | make oldconfig
