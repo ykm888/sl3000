@@ -22,7 +22,6 @@ define Device/mt7981-default
 endef
 TARGET_DEVICES += mt7981-default
 
-
 # ===========================
 #   SL3000 eMMC (你的设备)
 # ===========================
@@ -58,7 +57,6 @@ define Device/sl3000-emmc
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
-
 
 # ===========================
 #   Include generic rules
