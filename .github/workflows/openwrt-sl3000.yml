@@ -1,9 +1,9 @@
-name: Sync upstream patches-6.6
+name: Sync ImmortalWrt patches-6.12
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 3 * * *"   # 每天凌晨 3 点自动同步
 
 jobs:
   sync:
@@ -15,23 +15,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Clone OpenWrt upstream (24.10)
+      - name: Clone ImmortalWrt master
         run: |
-          git clone --depth=1 --branch openwrt-24.10 https://github.com/openwrt/openwrt.git upstream
+          git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git upstream
 
-      - name: Replace patches-6.6 with upstream version
+      - name: Sync patches-6.12
         run: |
-          rm -rf target/linux/mediatek/patches-6.6
-          mkdir -p target/linux/mediatek/patches-6.6
-          cp -a upstream/target/linux/mediatek/patches-6.6/* target/linux/mediatek/patches-6.6/
+          rm -rf target/linux/mediatek/patches-6.12
+          mkdir -p target/linux/mediatek/patches-6.12
+          cp -a upstream/target/linux/mediatek/patches-6.12/* target/linux/mediatek/patches-6.12/
 
       - name: Commit changes if any
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add target/linux/mediatek/patches-6.6
-            git commit -m "Sync patches-6.6 from OpenWrt upstream"
+            git add target/linux/mediatek/patches-6.12
+            git commit -m "Sync patches-6.12 from ImmortalWrt"
             git push
           else
             echo "No changes detected."
