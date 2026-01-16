@@ -1,289 +1,138 @@
-/* SPDX-License-Identifier: (GPL-2.0 OR MIT) */
-/*
- * Unisoc SL-3000 eMMC Router - based on MT7981 RFB
- */
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
 /dts-v1/;
+
 #include "mt7981b.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/leds/common.h>
 
 / {
-    model = "Unisoc SL-3000 eMMC Router";
-    compatible = "unisoc,sl3000-emmc", "mediatek,mt7981-rfb", "mediatek,mt7981";
+    compatible = "sl,3000-emmc", "mediatek,mt7981b";
+    model = "SL-3000 eMMC Router";
+
+    #address-cells = <2>;
+    #size-cells = <2>;
 
     aliases {
         serial0 = &uart0;
         mmc0 = &mmc0;
         ethernet0 = &gmac0;
         ethernet1 = &gmac1;
+
+        led-boot     = &led_green;
+        led-running  = &led_green;
+        led-failsafe = &led_red;
+        led-upgrade  = &led_blue;
     };
 
     chosen {
         stdout-path = "serial0:115200n8";
-        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=/dev/mmcblk0p2 rootwait rootfstype=f2fs";
+        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
     };
 
     memory@40000000 {
         device_type = "memory";
-        reg = <0x40000000 0x40000000>; /* 1GB RAM */
+        reg = <0x0 0x40000000 0x0 0x40000000>; /* 1GB */
     };
 
-    /* 3.3V regulator for eMMC and other peripherals */
+    /* 固定 3.3V 电源 */
     reg_3p3v: regulator-3p3v {
         compatible = "regulator-fixed";
-        regulator-name = "fixed-3.3V";
+        regulator-name = "fixed-3.3v";
         regulator-min-microvolt = <3300000>;
         regulator-max-microvolt = <3300000>;
-        regulator-boot-on;
         regulator-always-on;
+        regulator-boot-on;
     };
 
-    /* 5V regulator for USB */
-    reg_5v: regulator-5v {
-        compatible = "regulator-fixed";
-        regulator-name = "fixed-5V";
-        regulator-min-microvolt = <5000000>;
-        regulator-max-microvolt = <5000000>;
-        regulator-boot-on;
-        regulator-always-on;
+    /* LED */
+    leds {
+        compatible = "gpio-leds";
+
+        led_red: led-red {
+            label = "red:status";
+            color = <LED_COLOR_ID_RED>;
+            function = LED_FUNCTION_STATUS;
+            gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
+            default-state = "off";
+        };
+
+        led_green: led-green {
+            label = "green:status";
+            color = <LED_COLOR_ID_GREEN>;
+            function = LED_FUNCTION_STATUS;
+            gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+            linux,default-trigger = "heartbeat";
+        };
+
+        led_blue: led-blue {
+            label = "blue:status";
+            color = <LED_COLOR_ID_BLUE>;
+            function = LED_FUNCTION_STATUS;
+            gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+            default-state = "off";
+        };
     };
 
-    /* GPIO buttons */
+    /* reset 按键 */
     gpio-keys {
         compatible = "gpio-keys";
 
         reset {
             label = "reset";
-            linux,code = <KEY_RESTART>;
             gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-            debounce-interval = <50>;
-        };
-
-        wps {
-            label = "wps";
-            linux,code = <KEY_WPS_BUTTON>;
-            gpios = <&pio 0 GPIO_ACTIVE_HIGH>;
+            linux,code = <KEY_RESTART>;
             debounce-interval = <50>;
         };
     };
-
-    /* LED indicators */
-    leds {
-        compatible = "gpio-leds";
-
-        led-red {
-            label = "red:status";
-            gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-            default-state = "off";
-        };
-
-        led-green {
-            label = "green:status";
-            gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-            linux,default-trigger = "heartbeat";
-        };
-
-        led-blue {
-            label = "blue:status";
-            gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-            default-state = "off";
-        };
-    };
-
-    /* eMMC storage - 128GB */
-    mmc0: mmc@11230000 {
-        compatible = "mediatek,mt7981-mmc";
-        reg = <0x11230000 0x1000>;
-        interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
-        bus-width = <8>;
-        non-removable;
-        cap-mmc-highspeed;
-        cap-sd-highspeed;
-        max-frequency = <50000000>;
-        pinctrl-names = "default", "state_uhs";
-        pinctrl-0 = <&mmc0_pins_default>;
-        pinctrl-1 = <&mmc0_pins_uhs>;
-        vmmc-supply = <&reg_3p3v>;
-        vqmmc-supply = <&reg_3p3v>;
-        status = "okay";
-
-        partitions {
-            compatible = "fixed-partitions";
-            #address-cells = <1>;
-            #size-cells = <1>;
-
-            /* Bootloader partition (32MB) */
-            partition@0 {
-                label = "bootloader";
-                reg = <0x00000000 0x02000000>;
-                read-only;
-            };
-
-            /* Kernel and rootfs partition (96GB) */
-            partition@2000000 {
-                label = "rootfs";
-                reg = <0x02000000 0x1E0000000>;
-            };
-        };
-    };
-
-    /* Ethernet with 2.5G and 1G ports */
-    eth: ethernet@15100000 {
-        compatible = "mediatek,mt7981-eth";
-        reg = <0x15100000 0x80000>;
-        interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
-        status = "okay";
-
-        gmac0: mac@0 {
-            compatible = "mediatek,eth-mac";
-            reg = <0>;
-            phy-mode = "2500base-x";
-            fixed-link {
-                speed = <2500>;
-                full-duplex;
-                pause;
-            };
-        };
-
-        gmac1: mac@1 {
-            compatible = "mediatek,eth-mac";
-            reg = <1>;
-            phy-mode = "sgmii";
-            fixed-link {
-                speed = <1000>;
-                full-duplex;
-                pause;
-            };
-        };
-
-        /* Internal switch for 4x LAN ports */
-        mdio_bus: mdio-bus {
-            #address-cells = <1>;
-            #size-cells = <0>;
-
-            switch: switch@1f {
-                compatible = "mediatek,mt7531";
-                reg = <31>;
-                interrupt-controller;
-                #interrupt-cells = <1>;
-                interrupt-parent = <&pio>;
-                interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
-                reset-gpios = <&pio 5 GPIO_ACTIVE_HIGH>;
-
-                ports {
-                    #address-cells = <1>;
-                    #size-cells = <0>;
-
-                    port@0 {
-                        reg = <0>;
-                        label = "lan1";
-                        phy-mode = "sgmii";
-                    };
-
-                    port@1 {
-                        reg = <1>;
-                        label = "lan2";
-                        phy-mode = "sgmii";
-                    };
-
-                    port@2 {
-                        reg = <2>;
-                        label = "lan3";
-                        phy-mode = "sgmii";
-                    };
-
-                    port@3 {
-                        reg = <3>;
-                        label = "lan4";
-                        phy-mode = "sgmii";
-                    };
-
-                    port@6 {
-                        reg = <6>;
-                        ethernet = <&gmac1>;
-                        phy-mode = "sgmii";
-                        fixed-link {
-                            speed = <1000>;
-                            full-duplex;
-                            pause;
-                        };
-                    };
-                };
-            };
-        };
-    };
-
-    /* Crypto engine */
-    crypto: crypto@1f000000 {
-        compatible = "mediatek,crypto";
-        reg = <0x1f000000 0x1000>;
-        status = "okay";
-    };
-
-    /* WiFi 6 interface */
-    wifi: wifi@18000000 {
-        compatible = "mediatek,mt7981-wmac";
-        reg = <0x18000000 0x100000>;
-        interrupts = <GIC_SPI 213 IRQ_TYPE_LEVEL_HIGH>;
-        status = "okay";
-    };
 };
 
-/* Pin control configurations */
-&pio {
-    /* eMMC default pins */
-    mmc0_pins_default: mmc0-pins-default {
-        mux {
-            function = "flash";
-            groups = "emmc_45";
-        };
-    };
-
-    /* eMMC UHS pins */
-    mmc0_pins_uhs: mmc0-pins-uhs {
-        mux {
-            function = "flash";
-            groups = "emmc_45";
-        };
-    };
-
-    /* SPI flash pins (for 32MB SPI NOR) */
-    spi0_flash_pins: spi0-pins {
-        mux {
-            function = "spi";
-            groups = "spi0", "spi0_wp_hold";
-        };
-    };
-};
-
-/* SPI controller for 32MB NOR flash */
-&spi0 {
-    pinctrl-names = "default";
-    pinctrl-0 = <&spi0_flash_pins>;
-    #address-cells = <1>;
-    #size-cells = <0>;
-    status = "disabled";
-};
-
-/* Serial console */
+/* UART0 */
 &uart0 {
     status = "okay";
 };
 
-/* USB 3.0 */
-&usb_phy {
+/* eMMC 控制器 */
+&mmc0 {
+    bus-width = <8>;
+    non-removable;
+    cap-mmc-highspeed;
+    mmc-hs200-1_8v;
+    max-frequency = <50000000>;
+
+    vmmc-supply = <&reg_3p3v>;
+    vqmmc-supply = <&reg_3p3v>;
+
     status = "okay";
 };
 
-&xhci {
-    vusb33-supply = <&reg_3p3v>;
-    vbus-supply = <&reg_5v>;
+/* 以太网 */
+&eth {
     status = "okay";
+
+    gmac0: mac@0 {
+        compatible = "mediatek,eth-mac";
+        reg = <0>;
+        phy-mode = "2500base-x";
+        fixed-link {
+            speed = <2500>;
+            full-duplex;
+        };
+    };
+
+    gmac1: mac@1 {
+        compatible = "mediatek,eth-mac";
+        reg = <1>;
+        phy-mode = "2500base-x";
+        fixed-link {
+            speed = <2500>;
+            full-duplex;
+        };
+    };
 };
 
-/* Watchdog */
-&watchdog {
+/* GPIO 控制器 */
+&pio {
     status = "okay";
 };
