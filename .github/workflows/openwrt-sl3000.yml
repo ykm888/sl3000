@@ -30,6 +30,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y device-tree-compiler
 
+      - name: Clean DTS file (BOM / CRLF / control chars)
+        run: |
+          # 删除 UTF-8 BOM
+          sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
+          # 删除 Windows CRLF
+          sed -i 's/\r$//' "${{ env.DTS_FILE }}"
+          # 删除不可见控制字符
+          tr -d '\000-\011\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
+          mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
+
       - name: Check DTS exists and syntax
         run: |
           if [ ! -f "${{ env.DTS_FILE }}" ]; then
