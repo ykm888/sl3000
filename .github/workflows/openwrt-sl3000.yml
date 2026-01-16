@@ -71,6 +71,13 @@ jobs:
             esac
           done
 
+      - name: Debug print actual filogic.mk
+        run: |
+          echo "===== ACTUAL filogic.mk PATH ====="
+          find target/linux/mediatek -name "filogic.mk" -print
+          echo "===== ACTUAL filogic.mk CONTENT ====="
+          sed -n '1,100p' $(find target/linux/mediatek -name "filogic.mk" | head -n 1)
+
   build:
     runs-on: ubuntu-22.04
     needs: check-dts
@@ -98,7 +105,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Refresh target metadata (critical)
+      - name: Refresh target metadata
         run: |
           make target/compile
 
