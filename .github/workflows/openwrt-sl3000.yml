@@ -16,8 +16,11 @@ jobs:
   check-dts:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source
+      - name: Checkout source (force latest master)
         uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
 
       - name: Install dtc
         run: |
@@ -72,9 +75,10 @@ jobs:
     runs-on: ubuntu-22.04
     needs: check-dts
     steps:
-      - name: Checkout source
+      - name: Checkout source (force latest master)
         uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
 
       - name: Free disk space
@@ -94,7 +98,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Refresh target metadata
+      - name: Refresh target metadata (critical)
         run: |
           make target/compile
 
