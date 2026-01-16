@@ -4,14 +4,14 @@
  */
 
  /dts-v1/;
- #include "mt7981b.dtsi"
- #include <dt-bindings/gpio/gpio.h>
- #include <dt-bindings/input/input.h>
- #include <dt-bindings/interrupt-controller/irq.h>
+#include "mt7981b.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
  / {
      model = "SL-3000 eMMC Router";
-     compatible = "sl,3000-emmc", "mediatek,mt7981";
+     compatible = "sl3000-emmc", "mediatek,mt7981";
 
      aliases {
          serial0 = &uart0;
