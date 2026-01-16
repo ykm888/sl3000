@@ -1,4 +1,4 @@
-name: DTS Check
+name: DTS Build (OpenWrt)
 
 on:
   push:
@@ -10,42 +10,34 @@ on:
   workflow_dispatch:   # 👈 手动运行按钮
 
 jobs:
-  dts-compile:
+  dts-build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler gcc cpp flex bison m4
+          sudo apt-get install -y build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 unzip zlib1g-dev device-tree-compiler ccache m4
 
-      - name: Verify DTS file exists
+      - name: Prepare OpenWrt toolchain
         run: |
-          DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-          if [ ! -f "$DTS_FILE" ]; then
-            echo "❌ DTS not found: $DTS_FILE"
-            exit 1
-          fi
+          make tools/install V=s
+          make toolchain/install V=s
 
-      - name: Preprocess and compile DTS
+      - name: Build target linux (includes DTS → DTB)
         run: |
-          DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-          OUT_FILE="/tmp/test.dtb"
-          cpp -nostdinc \
-            -I target/linux/mediatek/files-6.12/arch/arm64/boot/dts \
-            -I target/linux/mediatek/files-6.12/include \
-            -I build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.63/include \
-            -I build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.63/include/dt-bindings \
-            "$DTS_FILE" | dtc -I dts -O dtb -o "$OUT_FILE"
+          make target/linux/compile V=s
 
-      - name: Check DTB output
+      - name: Verify DTB output
         run: |
-          if [ -f "/tmp/test.dtb" ]; then
-            echo "✅ DTS compiled successfully"
+          TARGET_DIR="bin/targets/mediatek/filogic"
+          if ls $TARGET_DIR/*.dtb >/dev/null 2>&1; then
+            echo "✅ DTS compiled successfully, DTB files are in $TARGET_DIR"
           else
-            echo "❌ DTS compilation failed"
+            echo "❌ DTS compilation failed, no DTB generated"
             exit 1
           fi
