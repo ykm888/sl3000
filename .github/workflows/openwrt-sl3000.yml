@@ -71,12 +71,13 @@ jobs:
             esac
           done
 
-      - name: Debug print actual filogic.mk
+      - name: Dump raw filogic.mk (show tabs, CR, hidden chars)
         run: |
-          echo "===== ACTUAL filogic.mk PATH ====="
+          echo "===== RAW filogic.mk PATH ====="
           find target/linux/mediatek -name "filogic.mk" -print
-          echo "===== ACTUAL filogic.mk CONTENT ====="
-          sed -n '1,100p' $(find target/linux/mediatek -name "filogic.mk" | head -n 1)
+          echo "===== RAW filogic.mk CONTENT ====="
+          sed -n '1,200p' $(find target/linux/mediatek -name "filogic.mk" | head -n 1) \
+            | sed -e 's/\t/[TAB]/g' -e 's/\r/[CR]/g'
 
   build:
     runs-on: ubuntu-22.04
