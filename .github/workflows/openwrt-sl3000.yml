@@ -38,7 +38,7 @@ jobs:
             exit 1
           fi
 
-      - name: Check mk ↔ DTS
+      - name: Check mk ↔ DTS consistency
         run: |
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             echo "❌ mk missing Device/${{ env.PROFILE }}"
@@ -49,22 +49,7 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare minimal .config for check
-        run: |
-          rm -f .config
-          echo "CONFIG_TARGET_mediatek=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          make defconfig
-
-      - name: Check config ↔ mk
-        run: |
-          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-            echo "❌ config missing CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}"
-            exit 1
-          fi
-
-      - name: Check DTS syntax with dtc
+      - name: Check DTS syntax
         run: |
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
@@ -111,6 +96,13 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           make defconfig
+
+      - name: Verify config ↔ mk consistency
+        run: |
+          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
+            echo "❌ defconfig did not select sl3000-emmc"
+            exit 1
+          fi
 
       - name: Feeds update/install
         run: |
