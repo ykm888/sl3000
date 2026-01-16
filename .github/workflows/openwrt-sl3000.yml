@@ -94,6 +94,10 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Refresh target metadata
+        run: |
+          make target/compile
+
       - name: Configure target
         run: |
           rm -f .config
