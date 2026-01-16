@@ -6,7 +6,7 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 
- / {
+/ {
      model = "SL-3000 eMMC Router";
      compatible = "sl3000-emmc", "mediatek,mt7981";
 
@@ -151,4 +151,5 @@
 
  &xhci {
      status = "okay";
+
  };
