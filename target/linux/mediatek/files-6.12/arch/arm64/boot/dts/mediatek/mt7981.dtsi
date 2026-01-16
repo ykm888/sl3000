@@ -26,65 +26,60 @@
 
     timer {
         compatible = "arm,armv8-timer";
+        /* <type, num, flags>，这里直接用裸数字，不用宏 */
         interrupts = <1 13 4>, <1 14 4>, <1 11 4>, <1 10 4>;
     };
-};
 
-/* GIC */
-&gic {
-    compatible = "arm,gic-v3";
-    #interrupt-cells = <3>;
-    interrupt-controller;
-    reg = <0x0 0x0c000000 0x0 0x40000>,
-          <0x0 0x0c100000 0x0 0x200000>;
-};
+    gic: interrupt-controller@c000000 {
+        compatible = "arm,gic-v3";
+        #interrupt-cells = <3>;
+        interrupt-controller;
+        reg = <0x0 0x0c000000 0x0 0x40000>,
+              <0x0 0x0c100000 0x0 0x200000>;
+    };
 
-/* UART0 */
-&uart0 {
-    compatible = "mediatek,mt7981-uart", "ns16550a";
-    reg = <0 0x11002000 0 0x1000>;
-    interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
-    clocks = <&topckgen CLK_TOP_UART_SEL>, <&infracfg CLK_INFRA_UART0>;
-    clock-names = "baud", "bus";
-    status = "okay";
-};
+    uart0: serial@11002000 {
+        compatible = "mediatek,mt7981-uart", "ns16550a";
+        reg = <0x0 0x11002000 0x0 0x1000>;
+        /* <type, num, flags>，不用 GIC_SPI 宏 */
+        interrupts = <0 123 4>;
+        clocks = <&topckgen 0>, <&infracfg 0>;
+        clock-names = "baud", "bus";
+        status = "okay";
+    };
 
-/* Pin controller */
-&pio {
-    compatible = "mediatek,mt7981-pinctrl";
-    reg = <0 0x1001f000 0 0x1000>;
-    gpio-controller;
-    #gpio-cells = <2>;
-    status = "okay";
-};
+    pio: pinctrl@1001f000 {
+        compatible = "mediatek,mt7981-pinctrl";
+        reg = <0x0 0x1001f000 0x0 0x1000>;
+        gpio-controller;
+        #gpio-cells = <2>;
+        status = "okay";
+    };
 
-/* Ethernet */
-&eth {
-    compatible = "mediatek,mt7981-eth";
-    reg = <0 0x15100000 0 0x20000>;
-    interrupts = <GIC_SPI 200 IRQ_TYPE_LEVEL_HIGH>;
-    status = "okay";
-};
+    eth: ethernet@15100000 {
+        compatible = "mediatek,mt7981-eth";
+        reg = <0x0 0x15100000 0x0 0x20000>;
+        interrupts = <0 200 4>;
+        status = "okay";
+    };
 
-/* eMMC */
-&mmc0 {
-    compatible = "mediatek,mt7981-mmc";
-    reg = <0 0x11230000 0 0x1000>;
-    interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
-    clocks = <&topckgen CLK_TOP_MSDC50_0_SEL>, <&infracfg CLK_INFRA_MSDC0>;
-    clock-names = "source", "hclk";
-    bus-width = <8>;
-    status = "okay";
-};
+    mmc0: mmc@11230000 {
+        compatible = "mediatek,mt7981-mmc";
+        reg = <0x0 0x11230000 0x0 0x1000>;
+        interrupts = <0 143 4>;
+        clocks = <&topckgen 1>, <&infracfg 1>;
+        clock-names = "source", "hclk";
+        bus-width = <8>;
+        status = "okay";
+    };
 
-/* Clock controller */
-&topckgen {
-    compatible = "mediatek,mt7981-topckgen";
-    reg = <0 0x10000000 0 0x1000>;
-};
+    topckgen: clock-controller@10000000 {
+        compatible = "mediatek,mt7981-topckgen";
+        reg = <0x0 0x10000000 0x0 0x1000>;
+    };
 
-/* Infra clock */
-&infracfg {
-    compatible = "mediatek,mt7981-infracfg";
-    reg = <0 0x10001000 0 0x1000>;
+    infracfg: clock-controller@10001000 {
+        compatible = "mediatek,mt7981-infracfg";
+        reg = <0x0 0x10001000 0x0 0x1000>;
+    };
 };
