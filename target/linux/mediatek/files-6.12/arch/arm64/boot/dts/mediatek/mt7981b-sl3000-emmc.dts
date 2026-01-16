@@ -3,9 +3,6 @@
 /dts-v1/;
 
 /include/ "mt7981.dtsi"
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/leds/common.h>
 
 / {
     compatible = "sl,3000-emmc", "mediatek,mt7981b";
@@ -46,43 +43,41 @@
         regulator-boot-on;
     };
 
-    /* LED */
+    /* LED：全部不用宏，直接用字符串和数字 */
     leds {
         compatible = "gpio-leds";
 
         led_red: led-red {
             label = "red:status";
-            color = <LED_COLOR_ID_RED>;
-            function = LED_FUNCTION_STATUS;
-            gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
+            /* 不用 LED_COLOR_ID_* / LED_FUNCTION_* 宏，直接用字符串描述 */
+            function = "status";
+            gpios = <&pio 10 0>; /* 0 代表 active-high */
             default-state = "off";
         };
 
         led_green: led-green {
             label = "green:status";
-            color = <LED_COLOR_ID_GREEN>;
-            function = LED_FUNCTION_STATUS;
-            gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+            function = "status";
+            gpios = <&pio 11 0>;
             linux,default-trigger = "heartbeat";
         };
 
         led_blue: led-blue {
             label = "blue:status";
-            color = <LED_COLOR_ID_BLUE>;
-            function = LED_FUNCTION_STATUS;
-            gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+            function = "status";
+            gpios = <&pio 12 0>;
             default-state = "off";
         };
     };
 
-    /* reset 按键 */
+    /* reset 按键：同样不用 KEY_* 宏 */
     gpio-keys {
         compatible = "gpio-keys";
 
         reset {
             label = "reset";
-            gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-            linux,code = <KEY_RESTART>;
+            gpios = <&pio 1 1>; /* 1 代表 active-low */
+            linux,code = <0x198>; /* KEY_RESTART = 0x198 */
             debounce-interval = <50>;
         };
     };
@@ -135,5 +130,4 @@
 /* GPIO 控制器 */
 &pio {
     status = "okay";
-
 };
