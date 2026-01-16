@@ -26,33 +26,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dtc
-        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
-
-      - name: Check DTS exists + syntax
         run: |
-          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS not found: ${{ env.DTS_FILE }}"; exit 1; }
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler
+
+      - name: Check DTS exists and syntax
+        run: |
+          if [ ! -f "${{ env.DTS_FILE }}" ]; then
+            echo "❌ DTS not found: ${{ env.DTS_FILE }}"
+            exit 1
+          fi
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
-      - name: Auto-register DTS in Makefile
+      - name: Auto register DTS in Makefile
         run: |
           if ! grep -q "${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
             echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           fi
 
-      - name: Auto-register profile in filogic.mk
+      - name: Auto register profile in filogic.mk
         run: |
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            cat >> "${{ env.MK_FILE }}" <<EOF
-
-define Device/${{ env.PROFILE }}
-  DEVICE_DTS := ${{ env.DTS_NAME }}
-  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs
-endef
-TARGET_DEVICES += ${{ env.PROFILE }}
-EOF
+            echo "" >> "${{ env.MK_FILE }}"
+            echo "define Device/${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
+            echo "  DEVICE_DTS := ${{ env.DTS_NAME }}" >> "${{ env.MK_FILE }}"
+            echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs" >> "${{ env.MK_FILE }}"
+            echo "endef" >> "${{ env.MK_FILE }}"
+            echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
           fi
 
-      - name: Auto-generate .config
+      - name: Auto generate .config
         run: |
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
@@ -108,7 +111,8 @@ EOF
           ccache -s
 
       - name: Force rebuild host toolchain
-        run: rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain || true
+        run: |
+          rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain || true
 
       - name: Feeds auto repair with retry
         run: |
@@ -121,15 +125,27 @@ EOF
       - name: Build tools and toolchain
         run: |
           set -e
-          if timeout 20m make tools/install -j$(nproc); then echo "tools ok"; else make tools/install -j1 V=s; fi
-          if timeout 20m make toolchain/install -j$(nproc); then echo "toolchain ok"; else make toolchain/install -j1 V=s; fi
+          if timeout 20m make tools/install -j"$(nproc)"; then
+            echo "tools ok"
+          else
+            make tools/install -j1 V=s
+          fi
+          if timeout 20m make toolchain/install -j"$(nproc)"; then
+            echo "toolchain ok"
+          else
+            make toolchain/install -j1 V=s
+          fi
 
       - name: Build firmware
         run: |
           set -e
           export MAKEFLAGS="V=s"
           export WGET_OPTIONS="--tries=3 --timeout=20"
-          if timeout 30m make -j$(nproc); then echo "parallel build ok"; else make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m; fi
+          if timeout 30m make -j"$(nproc)"; then
+            echo "parallel build ok"
+          else
+            make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
+          fi
 
       - name: Verify firmware output
         run: |
