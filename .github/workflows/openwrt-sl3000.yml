@@ -93,7 +93,15 @@ jobs:
         run: make target/linux/clean
 
       - name: DTS sanity check
-        run: dtc -I dts -O dtb "${DTS_FILE}" -o /tmp/test.dtb
+        run: |
+          if command -v dtc >/dev/null 2>&1; then
+            dtc -I dts -O dtb "${DTS_FILE}" -o /tmp/test.dtb
+          elif [ -x ./staging_dir/host/bin/dtc ]; then
+            ./staging_dir/host/bin/dtc -I dts -O dtb "${DTS_FILE}" -o /tmp/test.dtb
+          else
+            echo "❌ No dtc found in system or staging_dir"
+            exit 1
+          fi
 
       - name: DTS compile check + dtb auto-dump
         run: |
