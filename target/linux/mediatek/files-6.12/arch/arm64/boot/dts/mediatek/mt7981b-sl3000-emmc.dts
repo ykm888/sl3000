@@ -7,156 +7,156 @@
 
 #include "mt7981b.dtsi"
 
-/ {
-	model = "SL-3000 eMMC Router";
-	compatible = "sl3000-emmc", "mediatek,mt7981";
+ / {
+    model = "SL-3000 eMMC Router";
+    compatible = "sl3000-emmc", "mediatek,mt7981";
 
-	aliases {
-		serial0 = &uart0;
-		mmc0 = &mmc0;
-	};
+    aliases {
+        serial0 = &uart0;
+        mmc0 = &mmc0;
+    };
 
-	chosen {
-		stdout-path = "serial0:115200n8";
-		bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
-	};
+    chosen {
+        stdout-path = "serial0:115200n8";
+        bootargs = "console=ttyS0,115200n1 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait rootfstype=squashfs,f2fs";
+    };
 
-	memory@40000000 {
-		device_type = "memory";
-		reg = <0x40000000 0x40000000>;
-	};
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0x40000000 0x40000000>;
+    };
 
-	gpio-keys {
-		compatible = "gpio-keys";
+    gpio-keys {
+        compatible = "gpio-keys";
 
-		reset {
-			label = "reset";
-			linux,code = <KEY_RESTART>;
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-			debounce-interval = <50>;
-		};
+        reset {
+            label = "reset";
+            linux,code = <KEY_RESTART>;
+            gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+            debounce-interval = <50>;
+        };
 
-		wps {
-			label = "wps";
-			linux,code = <KEY_WPS_BUTTON>;
-			gpios = <&pio 0 GPIO_ACTIVE_HIGH>;
-		};
-	};
+        wps {
+            label = "wps";
+            linux,code = <KEY_WPS_BUTTON>;
+            gpios = <&pio 0 GPIO_ACTIVE_HIGH>;
+        };
+    };
 
-	leds {
-		compatible = "gpio-leds";
+    leds {
+        compatible = "gpio-leds";
 
-		led-0 {
-			label = "red:status";
-			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-			default-state = "off";
-		};
+        led-0 {
+            label = "red:status";
+            gpios = <&pio 10 GPIO_ACTIVE_LOW>;
+            default-state = "off";
+        };
 
-		led-1 {
-			label = "green:status";
-			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "heartbeat";
-		};
+        led-1 {
+            label = "green:status";
+            gpios = <&pio 11 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "heartbeat";
+        };
 
-		led-2 {
-			label = "blue:status";
-			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-			default-state = "off";
-		};
-	};
+        led-2 {
+            label = "blue:status";
+            gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+            default-state = "off";
+        };
+    };
 
-	mmc0: mmc@11230000 {
-		compatible = "mediatek,mt7981-mmc";
-		reg = <0x11230000 0x1000>;
-		interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
-		bus-width = <8>;
-		non-removable;
-		cap-mmc-highspeed;
-		max-frequency = <50000000>;
-		pinctrl-names = "default";
-		status = "okay";
+    mmc0: mmc@11230000 {
+        compatible = "mediatek,mt7981-mmc";
+        reg = <0x11230000 0x1000>;
+        interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+        bus-width = <8>;
+        non-removable;
+        cap-mmc-highspeed;
+        max-frequency = <50000000>;
+        pinctrl-names = "default";
+        status = "okay";
 
-		partitions {
-			compatible = "fixed-partitions";
-			#address-cells = <1>;
-			#size-cells = <1>;
+        partitions {
+            compatible = "fixed-partitions";
+            #address-cells = <1>;
+            #size-cells = <1>;
 
-			partition@0 {
-				label = "kernel";
-				reg = <0x00000000 0x02000000>;
-			};
+            partition@0 {
+                label = "kernel";
+                reg = <0x00000000 0x02000000>;
+            };
 
-			partition@2000000 {
-				label = "rootfs";
-				reg = <0x02000000 0x20000000>;
-			};
+            partition@2000000 {
+                label = "rootfs";
+                reg = <0x02000000 0x20000000>;
+            };
 
-			partition@22000000 {
-				label = "rootfs_data";
-				reg = <0x22000000 0x80000000>;
-			};
+            partition@22000000 {
+                label = "rootfs_data";
+                reg = <0x22000000 0x80000000>;
+            };
 
-			partition@a2000000 {
-				label = "docker";
-				reg = <0x0a200000 0x1900000000>;
-			};
+            partition@a2000000 {
+                label = "docker";
+                reg = <0x0a200000 0x1900000000>;
+            };
 
-			partition@a220000000 {
-				label = "swap";
-				reg = <0xa220000000 0x500000000>;
-			};
+            partition@a220000000 {
+                label = "swap";
+                reg = <0xa220000000 0x500000000>;
+            };
 
-			partition@a720000000 {
-				label = "reserved";
-				reg = <0xa720000000 0x140000000>;
-			};
-		};
-	};
+            partition@a720000000 {
+                label = "reserved";
+                reg = <0xa720000000 0x140000000>;
+            };
+        };
+    };
 
-	ethernet@15100000 {
-		compatible = "mediatek,mt7981-eth";
-		reg = <0x15100000 0x80000>;
-		interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
-		status = "okay";
+    ethernet@15100000 {
+        compatible = "mediatek,mt7981-eth";
+        reg = <0x15100000 0x80000>;
+        interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+        status = "okay";
 
-		mac@0 {
-			compatible = "mediatek,eth-mac";
-			reg = <0>;
-			phy-mode = "2500base-x";
+        mac@0 {
+            compatible = "mediatek,eth-mac";
+            reg = <0>;
+            phy-mode = "2500base-x";
 
-			fixed-link {
-				speed = <2500>;
-				full-duplex;
-			};
-		};
+            fixed-link {
+                speed = <2500>;
+                full-duplex;
+            };
+        };
 
-		mac@1 {
-			compatible = "mediatek,eth-mac";
-			reg = <1>;
-			phy-mode = "2500base-x";
+        mac@1 {
+            compatible = "mediatek,eth-mac";
+            reg = <1>;
+            phy-mode = "2500base-x";
 
-			fixed-link {
-				speed = <2500>;
-				full-duplex;
-			};
-		};
-	};
+            fixed-link {
+                speed = <2500>;
+                full-duplex;
+            };
+        };
+    };
 
-	crypto: crypto@1f000000 {
-		compatible = "mediatek,crypto";
-		reg = <0x1f000000 0x1000>;
-		status = "okay";
-	};
+    crypto: crypto@1f000000 {
+        compatible = "mediatek,crypto";
+        reg = <0x1f000000 0x1000>;
+        status = "okay";
+    };
 };
 
 &uart0 {
-	status = "okay";
+    status = "okay";
 };
 
 &usb_phy {
-	status = "okay";
+    status = "okay";
 };
 
 &xhci {
-	status = "okay";
+    status = "okay";
 };
