@@ -7,7 +7,9 @@ permissions:
 
 env:
   PROFILE: sl3000-emmc
+  DTS_NAME: mt7981b-sl3000-emmc
   DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+  MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
 
 jobs:
@@ -22,20 +24,56 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y device-tree-compiler
 
-      - name: Clean DTS
+      - name: Clean DTS file
         run: |
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
           sed -i 's/\r$//' "${{ env.DTS_FILE }}"
           tr -d '\000-\011\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
-      - name: Check DTS syntax
+      - name: Check DTS exists
         run: |
           if [ ! -f "${{ env.DTS_FILE }}" ]; then
-            echo "❌ DTS not found"
+            echo "❌ DTS not found: ${{ env.DTS_FILE }}"
             exit 1
           fi
+
+      - name: Check mk consistency
+        run: |
+          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
+            echo "❌ mk missing Device/${{ env.PROFILE }}"
+            exit 1
+          fi
+          if ! grep -q "DEVICE_DTS *:= *${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
+            echo "❌ mk DEVICE_DTS mismatch"
+            exit 1
+          fi
+
+      - name: Check config consistency
+        run: |
+          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config 2>/dev/null; then
+            echo "❌ config missing CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}"
+            exit 1
+          fi
+
+      - name: Check DTS syntax
+        run: |
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
+
+      - name: Auto filter patches (keep only MT7981 related)
+        run: |
+          cd target/linux/mediatek/patches-6.12
+          for f in *; do
+            case "$f" in
+              *7981*|*filogic*|*mediatek*|*generic* )
+                echo "Keep: $f"
+                ;;
+              * )
+                echo "Remove: $f"
+                rm -f "$f"
+                ;;
+            esac
+          done
 
   build:
     runs-on: ubuntu-22.04
@@ -51,7 +89,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           sudo docker system prune -af || true
 
-      - name: Install build deps
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
@@ -80,7 +118,7 @@ jobs:
           rm -f .config
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           make defconfig
 
       - name: Feeds update/install
@@ -94,7 +132,6 @@ jobs:
         run: |
           export SKIP_TARGET_CHECK=1
           export FORCE=1
-          set -e
           make tools/install -j"$(nproc)" || make tools/install -j1 V=s
           make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
 
@@ -102,13 +139,12 @@ jobs:
         run: |
           export SKIP_TARGET_CHECK=1
           export FORCE=1
-          set -e
           make -j"$(nproc)" || make -j1 V=s
 
       - name: Verify output
         run: |
           ls -lh "${{ env.TARGET_DIR }}"
-          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || exit 1
+          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
