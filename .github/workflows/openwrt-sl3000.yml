@@ -89,6 +89,11 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates
 
+      - name: Feeds update/install
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
       - name: Configure target
         run: |
           rm -f .config
@@ -103,11 +108,6 @@ jobs:
             echo "❌ defconfig did not select sl3000-emmc"
             exit 1
           fi
-
-      - name: Feeds update/install
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
 
       - name: Build firmware
         run: |
