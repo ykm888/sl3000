@@ -38,6 +38,7 @@ jobs:
             -I target/linux/mediatek/files-6.12/arch/arm64/boot/dts \
             -I target/linux/mediatek/files-6.12/include \
             -I build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.63/include \
+            -I build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.12.63/include/dt-bindings \
             "$DTS_FILE" | dtc -I dts -O dtb -o "$OUT_FILE"
 
       - name: Check DTB output
