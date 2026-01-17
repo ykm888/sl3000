@@ -5,6 +5,11 @@ on:
 permissions:
   contents: write
 
+# ⭐ 关键修复：让所有命令在 immortalwrt 目录运行
+defaults:
+  run:
+    working-directory: immortalwrt
+
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
@@ -73,7 +78,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 8. 应用三件套 + 覆盖 .config（关键修复：必须在 feeds 之后）
+      # 8. ⭐ 关键修复：feeds 之后覆盖 .config（避免 fallback）
       - name: Apply DTS/mk/config
         run: |
           cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
@@ -82,7 +87,7 @@ jobs:
           cp myrepo/target/linux/mediatek/image/filogic.mk \
              target/linux/mediatek/image/
 
-          # 关键：让 .config 时间戳最新，避免触发 menuconfig
+          # ⭐ 关键：让 .config 时间戳最新，避免触发 menuconfig
           cp myrepo/.config .config
 
       # 9. 构建固件（延续上一版）
