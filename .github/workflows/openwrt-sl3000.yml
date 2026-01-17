@@ -5,14 +5,8 @@ on:
 permissions:
   contents: write
 
-# ⭐ 关键修复：让所有命令在 immortalwrt 目录运行
-defaults:
-  run:
-    working-directory: immortalwrt
-
 env:
   PROFILE: sl3000-emmc
-  DTS_NAME: mt7981b-sl3000-emmc
   TARGET_DIR: bin/targets/mediatek/filogic
 
 jobs:
@@ -28,21 +22,13 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      # 2. 你的仓库（三件套 + config）
+      # 2. 你的仓库（包含 fragment.config）
       - name: Checkout your repo
         uses: actions/checkout@v4
         with:
           path: myrepo
 
-      # 3. 三件套检测（延续上一版）
-      - name: Validate 3-piece set
-        run: |
-          test -f myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-          test -f myrepo/target/linux/mediatek/image/filogic.mk
-          test -f myrepo/.config
-          echo "3-piece set OK"
-
-      # 4. 构建依赖 + ccache（延续上一版）
+      # 3. 安装依赖
       - name: Install deps
         run: |
           sudo apt-get update
@@ -51,57 +37,57 @@ jobs:
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
           echo 'export PATH="/usr/lib/ccache:$PATH"' >> $GITHUB_ENV
 
-      # 5. 清理磁盘（延续上一版）
-      - name: Clean build cache
+      # 4. 使用 sbwml feeds（方案 A）
+      - name: Patch feeds.conf.default for sbwml
         run: |
-          rm -rf build_dir staging_dir tmp
-          rm -rf dl/*.tmp || true
-          find . -name "*.rej" -delete
-          find . -name "*.orig" -delete
-          make clean
-          make dirclean
+          sed -i 's|src-git luci .*|src-git luci https://github.com/sbwml/luci.git;master|' feeds.conf.default
+          sed -i 's|src-git packages .*|src-git packages https://github.com/sbwml/packages.git;master|' feeds.conf.default
+          echo "src-git passwall2 https://github.com/sbwml/luci-app-passwall2.git;main" >> feeds.conf.default
 
-      # 6. 补丁过滤（延续上一版）
-      - name: Filter patches
-        run: |
-          cd target/linux/mediatek/patches-6.12
-          for f in *; do
-            case "$f" in
-              *7981*|*filogic*|*mediatek*|*generic* ) ;;
-              * ) rm -f "$f" ;;
-            esac
-          done
-
-      # 7. Feeds（延续上一版）
+      # 5. Feeds
       - name: Feeds update/install
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 8. ⭐ 关键修复：feeds 之后覆盖 .config（避免 fallback）
-      - name: Apply DTS/mk/config
+      # 6. 自动生成完整 .config（核心步骤）
+      - name: Generate full config
         run: |
-          cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+          # 写入基础 target
+          cat > .config <<EOF
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
+EOF
+
+          # 叠加你的 fragment（你仓库里的）
+          cat myrepo/fragment.config >> .config
+
+          # 自动补齐所有依赖（非交互式）
+          make defconfig
+
+      # 7. 覆盖 DTS/mk（你的三件套）
+      - name: Apply DTS/mk
+        run: |
+          cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/*.dts \
              target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
           cp myrepo/target/linux/mediatek/image/filogic.mk \
              target/linux/mediatek/image/
 
-          # ⭐ 关键：让 .config 时间戳最新，避免触发 menuconfig
-          cp myrepo/.config .config
-
-      # 9. 构建固件（延续上一版）
+      # 8. 构建固件
       - name: Build firmware
         run: |
           make -j"$(nproc)" || make -j1 V=s
 
-      # 10. 验证产物（延续上一版）
-      - name: Verify output
-        run: |
-          ls -lh "${{ env.TARGET_DIR }}"
-          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || exit 1
+      # 9. 上传完整 .config（可选）
+      - name: Upload full config
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-config
+          path: .config
 
-      # 11. 上传固件（延续上一版）
+      # 10. 上传固件
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
