@@ -23,44 +23,54 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      # 2. 你的仓库（三件套 + .config）
+      # 2. 你的仓库（三件套 + config）
       - name: Checkout your repo
         uses: actions/checkout@v4
         with:
           path: myrepo
 
+      # 3. 三件套检测（fail-fast）
+      - name: Validate 3-piece set
+        run: |
+          echo "=== Checking DTS/mk/config ==="
+          test -f myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+          test -f myrepo/target/linux/mediatek/image/filogic.mk
+          test -f myrepo/.config
+          echo "3-piece set OK"
+
+      # 4. 应用三件套
       - name: Apply DTS/mk/config
         run: |
-          # DTS
           cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
              target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
-          # filogic.mk
           cp myrepo/target/linux/mediatek/image/filogic.mk \
              target/linux/mediatek/image/
 
-          # 直接使用你仓库里修好的 .config（官方源码兼容版）
           cp myrepo/.config .config
 
-      # 3. 构建依赖
+      # 5. 构建依赖 + ccache
       - name: Install deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
+          echo 'export PATH="/usr/lib/ccache:$PATH"' >> $GITHUB_ENV
 
-      # 4. 清理缓存
+      # 6. 清理磁盘（增强版）
       - name: Clean build cache
         run: |
+          echo "=== Full clean ==="
           rm -rf build_dir staging_dir tmp
           rm -rf dl/*.tmp || true
           find . -name "*.rej" -delete
           find . -name "*.orig" -delete
+          find . -name "*~" -delete
           make clean
           make dirclean
 
-      # 5. 补丁过滤
+      # 7. 补丁过滤
       - name: Filter patches
         run: |
           cd target/linux/mediatek/patches-6.12
@@ -71,24 +81,24 @@ jobs:
             esac
           done
 
-      # 6. Feeds
+      # 8. Feeds
       - name: Feeds update/install
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 7. 直接构建（不跑任何 *config）
+      # 9. 直接构建（不跑任何 *config）
       - name: Build firmware
         run: |
           make -j"$(nproc)" || make -j1 V=s
 
-      # 8. 验证产物
+      # 10. 验证产物
       - name: Verify output
         run: |
           ls -lh "${{ env.TARGET_DIR }}"
           compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || exit 1
 
-      # 9. 上传固件
+      # 11. 上传固件
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
