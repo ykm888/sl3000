@@ -95,11 +95,12 @@ jobs:
           ./scripts/feeds install -a
 
       # ===========================
-      # 7. defconfig（非交互式）
+      # 7. olddefconfig（绝不触发 menuconfig）
       # ===========================
-      - name: Configure target
+      - name: Configure target (non-interactive)
         run: |
-          KCONFIG_NONINTERACTIVE=1 make defconfig
+          echo "=== Force non-interactive config ==="
+          make olddefconfig
 
       # ===========================
       # 8. 构建固件
