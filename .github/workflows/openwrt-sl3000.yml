@@ -1,468 +1,131 @@
 name: ImmortalWrt Build
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        description: 'Target profile'
-        default: 'sl3000-emmc'
-        required: true
-      branch:
-        description: 'Source branch'
-        default: 'master'
-        required: true
 
 permissions:
   contents: write
 
 env:
-  TARGET: mediatek
-  SUBTARGET: filogic
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
-  DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-  MK_FILE: target/linux/mediatek/image/filogic.mk
+  TARGET_DIR: bin/targets/mediatek/filogic
 
 jobs:
-  check-dts:
-    runs-on: ubuntu-22.04
-    outputs:
-      dts_valid: ${{ steps.validate-dts.outputs.valid }}
-      dts_clean_needed: ${{ steps.check-bom.outputs.clean_needed }}
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || 'master' }}
-          fetch-depth: 0
-
-      - name: Install dtc
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y device-tree-compiler
-
-      - name: Check DTS file exists
-        id: check-dts
-        run: |
-          echo "Checking DTS file: ${{ env.DTS_FILE }}"
-          if [ -f "${{ env.DTS_FILE }}" ]; then
-            echo "✅ DTS file exists"
-            echo "size=$(wc -l < "${{ env.DTS_FILE }}")" >> $GITHUB_OUTPUT
-          else
-            echo "❌ DTS file not found"
-            echo "Searching for similar files..."
-            find target/linux/mediatek -name "*sl3000*" -type f 2>/dev/null || true
-            exit 1
-          fi
-
-      - name: Check for BOM/CRLF issues
-        id: check-bom
-        run: |
-          if file "${{ env.DTS_FILE }}" | grep -q "UTF-8 Unicode (with BOM)"; then
-            echo "⚠️ DTS file has UTF-8 BOM"
-            echo "clean_needed=true" >> $GITHUB_OUTPUT
-          elif grep -q $'\r' "${{ env.DTS_FILE }}"; then
-            echo "⚠️ DTS file has CRLF line endings"
-            echo "clean_needed=true" >> $GITHUB_OUTPUT
-          else
-            echo "✅ DTS file encoding looks good"
-            echo "clean_needed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check mk ↔ DTS consistency
-        run: |
-          echo "Checking mk file: ${{ env.MK_FILE }}"
-          
-          # 检查设备定义
-          if grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "✅ Device definition found in mk file"
-          else
-            echo "❌ Device '${{ env.PROFILE }}' not found in ${{ env.MK_FILE }}"
-            echo "Available devices:"
-            grep "define Device/" "${{ env.MK_FILE }}" | head -20
-            exit 1
-          fi
-          
-          # 检查 DTS 名称匹配
-          if grep -q "DEVICE_DTS *:= *${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "✅ DTS name matches in mk file"
-          else
-            echo "❌ DTS name '${{ env.DTS_NAME }}' not found in device definition"
-            echo "Looking in device block..."
-            awk "/define Device\/${{ env.PROFILE }}/,/^\$$/" "${{ env.MK_FILE }}" | grep -n "DEVICE_DTS"
-            exit 1
-          fi
-
-      - name: Validate DTS syntax
-        id: validate-dts
-        run: |
-          echo "Validating DTS syntax..."
-          
-          # 创建临时清理副本
-          cp "${{ env.DTS_FILE }}" /tmp/test.dts
-          
-          # 移除BOM和CRLF
-          sed -i '1s/^\xEF\xBB\xBF//' /tmp/test.dts
-          sed -i 's/\r$//' /tmp/test.dts
-          
-          # 尝试编译DTS
-          if dtc -I dts -O dtb /tmp/test.dts -o /tmp/test.dtb 2>/dev/null; then
-            echo "✅ DTS syntax is valid"
-            echo "valid=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ DTS syntax error"
-            echo "Trying to get more details..."
-            dtc -I dts -O dtb /tmp/test.dts -o /tmp/test.dtb 2>&1 | head -50
-            echo "valid=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check kernel version compatibility
-        run: |
-          echo "Checking kernel version compatibility..."
-          if [ -d "target/linux/mediatek/files-6.12" ]; then
-            echo "✅ Kernel 6.12 files directory exists"
-          else
-            echo "⚠️ Kernel 6.12 files directory not found"
-            echo "Available kernel versions:"
-            ls -d target/linux/mediatek/files-* 2>/dev/null || true
-          fi
-
-  prepare-build:
-    runs-on: ubuntu-22.04
-    needs: check-dts
-    if: needs.check-dts.outputs.dts_valid == 'true'
-    outputs:
-      source_ready: ${{ steps.prepare.outputs.ready }}
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.branch || 'master' }}
-          fetch-depth: 0
-
-      - name: Prepare DTS file
-        if: needs.check-dts.outputs.dts_clean_needed == 'true'
-        run: |
-          echo "Cleaning DTS file encoding..."
-          cp "${{ env.DTS_FILE }}" "${{ env.DTS_FILE }}.backup"
-          
-          # 移除UTF-8 BOM
-          sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
-          
-          # 转换CRLF为LF
-          sed -i 's/\r$//' "${{ env.DTS_FILE }}"
-          
-          # 移除控制字符（除了换行和制表符）
-          sed -i 's/[[:cntrl:]]//g' "${{ env.DTS_FILE }}"
-          
-          echo "Original size: $(wc -l < "${{ env.DTS_FILE }}.backup") lines"
-          echo "Cleaned size: $(wc -l < "${{ env.DTS_FILE }}") lines"
-          
-          # 验证清理后的文件
-          if dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/cleaned.dtb 2>/dev/null; then
-            echo "✅ Cleaned DTS file is valid"
-          else
-            echo "❌ Cleaned DTS file still has issues"
-            echo "Restoring backup..."
-            cp "${{ env.DTS_FILE }}.backup" "${{ env.DTS_FILE }}"
-          fi
-
-      - name: Filter patches (keep only relevant ones)
-        run: |
-          echo "Filtering patches for mt7981/filogic..."
-          cd target/linux/mediatek/patches-6.12
-          
-          # 创建备份目录
-          mkdir -p /tmp/patch-backup
-          cp * /tmp/patch-backup/ 2>/dev/null || true
-          
-          # 列出所有补丁
-          echo "Total patches: $(ls -1 | wc -l)"
-          
-          # 只保留相关补丁
-          for patch in *; do
-            if [[ -f "$patch" ]]; then
-              # 检查补丁是否与我们的目标相关
-              if [[ "$patch" =~ (7981|filogic|mediatek|generic) ]] || \
-                 grep -q -i "(mt7981\|filogic\|mediatek)" "$patch" 2>/dev/null; then
-                echo "Keeping: $patch"
-              else
-                echo "Removing unrelated patch: $patch"
-                rm -f "$patch"
-              fi
-            fi
-          done
-          
-          echo "Patches remaining: $(ls -1 | wc -l)"
-
-      - name: Verify build configuration
-        id: prepare
-        run: |
-          echo "Verifying build configuration..."
-          
-          # 检查关键文件
-          required_files=(
-            "${{ env.DTS_FILE }}"
-            "${{ env.MK_FILE }}"
-            "target/linux/mediatek/Makefile"
-            "include/target.mk"
-          )
-          
-          for file in "${required_files[@]}"; do
-            if [ -f "$file" ]; then
-              echo "✅ Found: $file"
-            else
-              echo "❌ Missing: $file"
-              exit 1
-            fi
-          done
-          
-          # 检查配置文件
-          if [ -f ".config" ]; then
-            echo "✅ Found existing .config"
-            # 检查配置中是否包含目标设备
-            if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-              echo "✅ .config contains target device"
-            else
-              echo "⚠️ .config does not contain target device, will use defconfig"
-            fi
-          else
-            echo "⚠️ No .config found, will create with defconfig"
-          fi
-          
-          echo "ready=true" >> $GITHUB_OUTPUT
-
   build:
     runs-on: ubuntu-22.04
-    needs: prepare-build
-    if: needs.prepare-build.outputs.source_ready == 'true'
-    env:
-      OUTPUT_DIR: bin/targets/mediatek/filogic
-      BUILD_THREADS: ${{ github.runner.cpus || 4 }}
+
     steps:
-      - name: Checkout prepared source
+      # ===========================
+      # 1. 拉取官方 ImmortalWrt 源码
+      # ===========================
+      - name: Checkout official ImmortalWrt
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || 'master' }}
+          repository: immortalwrt/immortalwrt
+          ref: master
           fetch-depth: 0
 
-      - name: Setup environment
-        run: |
-          echo "Build environment:"
-          echo "PROFILE: ${{ env.PROFILE }}"
-          echo "DTS: ${{ env.DTS_NAME }}"
-          echo "Output dir: ${{ env.OUTPUT_DIR }}"
-          echo "Build threads: ${{ env.BUILD_THREADS }}"
+      # ===========================
+      # 2. 拉取你仓库的三件套
+      # ===========================
+      - name: Checkout your repo (三件套)
+        uses: actions/checkout@v4
+        with:
+          path: myrepo
 
-      - name: Free disk space
+      - name: Apply your DTS/mk/config 三件套
         run: |
-          echo "Freeing disk space..."
-          sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
-          sudo docker system prune -af || true
-          df -h
+          echo "=== Apply DTS ==="
+          cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+             target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
-      - name: Install build dependencies
+          echo "=== Apply filogic.mk ==="
+          cp myrepo/target/linux/mediatek/image/filogic.mk \
+             target/linux/mediatek/image/
+
+          echo "=== Apply .config (base) ==="
+          cp myrepo/.config .config
+
+      # ===========================
+      # 3. 安装依赖
+      # ===========================
+      - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang flex bison g++ gawk gcc-multilib gettext git \
-            libncurses5-dev libssl-dev python3 python3-setuptools python3-pip \
-            rsync unzip zlib1g-dev file wget curl ccache time pkg-config \
-            libelf-dev cpio bash cmake ninja-build gperf help2man texinfo \
-            yui-compressor upx-ucl dos2unix
+          sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
+            ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.3
-        with:
-          key: ${{ runner.os }}-openwrt-${{ env.PROFILE }}-${{ hashFiles('feeds.conf.default', 'Makefile') }}
-          max-size: 500M
-
-      - name: Initialize feeds
+      # ===========================
+      # 4. 清理缓存（彻底）
+      # ===========================
+      - name: Clean build cache
         run: |
-          echo "Updating feeds..."
-          ./scripts/feeds update -a
-          
-          echo "Installing feeds..."
-          ./scripts/feeds install -a
-          
-          echo "Feeds installed successfully"
+          rm -rf build_dir staging_dir tmp
+          rm -rf dl/*.tmp || true
+          find . -name "*.rej" -delete
+          find . -name "*.orig" -delete
+          make clean
+          make dirclean
 
+      # ===========================
+      # 5. 过滤补丁（只保留 mt7981/filogic）
+      # ===========================
+      - name: Filter patches
+        run: |
+          cd target/linux/mediatek/patches-6.12
+          for f in *; do
+            case "$f" in
+              *7981*|*filogic*|*mediatek*|*generic* )
+                echo "Keep: $f"
+                ;;
+              * )
+                echo "Remove: $f"
+                rm -f "$f"
+                ;;
+            esac
+          done
+
+      # ===========================
+      # 6. Feeds
+      # ===========================
+      - name: Feeds update/install
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ===========================
+      # 7. defconfig（非交互式）
+      # ===========================
       - name: Configure target
         run: |
-          echo "Configuring for ${{ env.PROFILE }}..."
-          
-          # 检查现有的 .config
-          if [ -f ".config" ]; then
-            echo "Using existing .config file"
-            
-            # 验证配置文件
-            echo "Checking if .config contains target device..."
-            if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-              echo "✅ .config already contains target device configuration"
-            else
-              echo "⚠️ .config missing target device, updating..."
-              # 确保目标设备配置存在
-              sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_/d' .config
-              echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-            fi
-          else
-            echo "No .config found, creating minimal configuration..."
-            # 创建基本配置
-            echo "CONFIG_TARGET_mediatek=y" > .config
-            echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          fi
-          
-          # 运行 defconfig 以填充默认值
-          echo "Running defconfig..."
-          make defconfig
-          
-          # 验证配置
-          echo "Configuration summary:"
-          grep "CONFIG_TARGET" .config | grep -v "^#" | sort | head -20
-          
-          # 验证特定设备配置
-          if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-            echo "✅ Device configuration verified"
-          else
-            echo "❌ Device configuration missing"
-            echo "Current device configs:"
-            grep "CONFIG_TARGET_mediatek_filogic_DEVICE" .config || true
-            exit 1
-          fi
+          KCONFIG_NONINTERACTIVE=1 make defconfig
 
-      - name: Download sources
-        timeout-minutes: 30
-        run: |
-          echo "Downloading package sources..."
-          make -j${{ env.BUILD_THREADS }} download 2>&1 | tee download.log || {
-            echo "Download failed, retrying with single thread..."
-            make -j1 download 2>&1 | tee -a download.log
-          }
-          
-          # 检查下载结果
-          if [ -d "dl" ]; then
-            echo "Download directory size:"
-            du -sh dl
-          fi
-
-      - name: Build toolchain
-        timeout-minutes: 45
-        run: |
-          echo "Building toolchain..."
-          make -j${{ env.BUILD_THREADS }} tools/install 2>&1 | tee tools.log
-          make -j${{ env.BUILD_THREADS }} toolchain/install 2>&1 | tee toolchain.log
-
+      # ===========================
+      # 8. 构建固件
+      # ===========================
       - name: Build firmware
-        timeout-minutes: 90
         run: |
-          echo "Starting firmware build..."
-          
-          # 开始完整构建
-          if make -j${{ env.BUILD_THREADS }} V=s 2>&1 | tee build.log; then
-            echo "✅ Build completed successfully"
-            BUILD_STATUS="success"
-          else
-            echo "⚠️ Build failed, trying with single thread..."
-            if make -j1 V=s 2>&1 | tee -a build.log; then
-              echo "✅ Build completed with single thread"
-              BUILD_STATUS="success"
-            else
-              echo "❌ Build failed completely"
-              BUILD_STATUS="failed"
-              
-              # 显示最后100行日志中的错误
-              echo "Last 100 lines of build log:"
-              tail -100 build.log | grep -i "error\|failed\|undefined"
-              
-              exit 1
-            fi
-          fi
+          make -j"$(nproc)" || make -j1 V=s
 
-      - name: Verify build output
-        if: success()
+      # ===========================
+      # 9. 验证产物
+      # ===========================
+      - name: Verify output
         run: |
-          echo "Checking build output in ${{ env.OUTPUT_DIR }}..."
-          
-          if [ -d "${{ env.OUTPUT_DIR }}" ]; then
-            echo "Build output directory contents:"
-            ls -la "${{ env.OUTPUT_DIR }}/"
-            
-            # 检查关键文件
-            echo ""
-            echo "Looking for firmware files:"
-            
-            # Sysupgrade images
-            sysupgrade_files=$(find "${{ env.OUTPUT_DIR }}" -name "*sysupgrade*.bin" -type f)
-            if [ -n "$sysupgrade_files" ]; then
-              echo "✅ Sysupgrade images found:"
-              echo "$sysupgrade_files" | while read -r file; do
-                ls -lh "$file"
-              done
-            else
-              echo "❌ No sysupgrade images found"
-            fi
-            
-            # Initramfs images
-            initramfs_files=$(find "${{ env.OUTPUT_DIR }}" -name "*initramfs*.bin" -type f)
-            if [ -n "$initramfs_files" ]; then
-              echo "✅ Initramfs images found:"
-              echo "$initramfs_files" | while read -r file; do
-                ls -lh "$file"
-              done
-            fi
-            
-            # 检查文件大小
-            echo ""
-            echo "Firmware file sizes:"
-            find "${{ env.OUTPUT_DIR }}" -name "*.bin" -type f -exec ls -lh {} \;
-            
-            # 检查manifest和buildinfo
-            for manifest in "${{ env.OUTPUT_DIR }}"/*.manifest; do
-              if [ -f "$manifest" ]; then
-                echo "✅ Manifest found: $(basename "$manifest")"
-                echo "First 5 packages:"
-                head -5 "$manifest"
-              fi
-            done
-          else
-            echo "❌ Output directory not found: ${{ env.OUTPUT_DIR }}"
-            echo "Available bin directories:"
-            find bin -type d -name "*mediatek*" 2>/dev/null || true
-          fi
+          ls -lh "${{ env.TARGET_DIR }}"
+          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
 
-      - name: Upload firmware artifacts
-        if: success()
+      # ===========================
+      # 10. 上传固件
+      # ===========================
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ env.PROFILE }}-${{ github.sha }}
+          name: immortalwrt-${{ env.PROFILE }}
           path: |
-            ${{ env.OUTPUT_DIR }}/*.bin
-            ${{ env.OUTPUT_DIR }}/*.manifest
-            ${{ env.OUTPUT_DIR }}/*.buildinfo
-            ${{ env.OUTPUT_DIR }}/profiles.json
-            ${{ env.OUTPUT_DIR }}/packages/
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ env.PROFILE }}
-          path: |
-            build.log
-            download.log
-            tools.log
-            toolchain.log
-          retention-days: 7
-
-      - name: Upload config
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: config-${{ env.PROFILE }}
-          path: |
-            .config
-            feeds.conf
-          retention-days: 7
+            ${{ env.TARGET_DIR }}/*sysupgrade.bin
+            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
+            ${{ env.TARGET_DIR }}/*.manifest
+            ${{ env.TARGET_DIR }}/*.buildinfo
+            ${{ env.TARGET_DIR }}/profiles.json
