@@ -216,6 +216,19 @@ jobs:
             fi
           done
           
+          # 检查配置文件
+          if [ -f ".config" ]; then
+            echo "✅ Found existing .config"
+            # 检查配置中是否包含目标设备
+            if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
+              echo "✅ .config contains target device"
+            else
+              echo "⚠️ .config does not contain target device, will use defconfig"
+            fi
+          else
+            echo "⚠️ No .config found, will create with defconfig"
+          fi
+          
           echo "ready=true" >> $GITHUB_OUTPUT
 
   build:
@@ -259,7 +272,7 @@ jobs:
             yui-compressor upx-ucl dos2unix
 
       - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1
+        uses: hendrikmuhs/ccache-action@v1.3
         with:
           key: ${{ runner.os }}-openwrt-${{ env.PROFILE }}-${{ hashFiles('feeds.conf.default', 'Makefile') }}
           max-size: 500M
@@ -278,24 +291,35 @@ jobs:
         run: |
           echo "Configuring for ${{ env.PROFILE }}..."
           
-          # 创建最小化配置
-          cat > .config << EOF
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y
-CONFIG_TARGET_ROOTFS_INITRAMFS=n
-CONFIG_TARGET_ROOTFS_SQUASHFS=y
-CONFIG_TARGET_IMAGES_GZIP=y
-CONFIG_KERNEL_BUILD_USER="ImmortalWrt"
-CONFIG_KERNEL_BUILD_DOMAIN="github.com"
-EOF
+          # 检查现有的 .config
+          if [ -f ".config" ]; then
+            echo "Using existing .config file"
+            
+            # 验证配置文件
+            echo "Checking if .config contains target device..."
+            if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
+              echo "✅ .config already contains target device configuration"
+            else
+              echo "⚠️ .config missing target device, updating..."
+              # 确保目标设备配置存在
+              sed -i '/CONFIG_TARGET_mediatek_filogic_DEVICE_/d' .config
+              echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+            fi
+          else
+            echo "No .config found, creating minimal configuration..."
+            # 创建基本配置
+            echo "CONFIG_TARGET_mediatek=y" > .config
+            echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+          fi
           
-          # 应用默认配置
+          # 运行 defconfig 以填充默认值
+          echo "Running defconfig..."
           make defconfig
           
-          # 显示配置摘要
+          # 验证配置
           echo "Configuration summary:"
-          grep "CONFIG_TARGET" .config | grep -v "^#" | sort
+          grep "CONFIG_TARGET" .config | grep -v "^#" | sort | head -20
           
           # 验证特定设备配置
           if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
