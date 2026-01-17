@@ -62,19 +62,32 @@ jobs:
             echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
           fi
 
-      # ⭐ 修复：生成完整 .config（完全对齐三件套）
+      # ✅ 生成完整 .config（对齐三件套，非交互、可复现）
       - name: Auto generate .config
         run: |
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           echo "CONFIG_CCACHE=y" >> .config
-
-          if [ -f myrepo/fragment.config ]; then
-            cat myrepo/fragment.config >> .config
-          fi
-
           make defconfig
+
+      # ✅ 真正的三件套检测（fail-fast）
+      - name: Validate 3-piece consistency (DTS / mk / profile)
+        run: |
+          DTS="${{ env.DTS_NAME }}"
+          PROFILE="${{ env.PROFILE }}"
+          MK="${{ env.MK_FILE }}"
+          DTS_MK="${{ env.DTS_MK }}"
+
+          echo "Checking DTS <-> mk <-> profile consistency..."
+
+          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS missing"; exit 1; }
+          grep -q "${DTS}.dtb" "${DTS_MK}" || { echo "❌ DTS not registered in DTS Makefile"; exit 1; }
+          grep -q "define Device/${PROFILE}" "${MK}" || { echo "❌ Profile not registered in mk"; exit 1; }
+          grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "❌ mk DEVICE_DTS mismatch"; exit 1; }
+          grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "❌ TARGET_DEVICES missing profile"; exit 1; }
+
+          echo "✔ 3-piece consistency OK"
 
   build:
     runs-on: ubuntu-22.04
@@ -165,67 +178,6 @@ jobs:
           compgen -G "${{ env.TARGET_DIR }}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
           (cd "${{ env.TARGET_DIR }}" && rm -f sha256sums.txt && find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt)
           (cd "${{ env.TARGET_DIR }}" && ls -1 > profiles.txt)
-
-      # ⭐ 新增：自动 diff fragment.config vs 最终 .config
-      - name: Diff fragment.config vs final .config
-        run: |
-          echo "===== DIFF START ====="
-          diff -u myrepo/fragment.config .config || true
-          echo "===== DIFF END ====="
-
-      # ⭐ 新增：三件套一致性报告
-      - name: Generate 3-piece consistency report
-        run: |
-          REPORT="3piece_report.txt"
-          echo "DTS: ${{ env.DTS_NAME }}" > $REPORT
-          echo "MK_FILE: ${{ env.MK_FILE }}" >> $REPORT
-          echo "PROFILE: ${{ env.PROFILE }}" >> $REPORT
-          echo "" >> $REPORT
-
-          echo "Checking DTS in mk..." >> $REPORT
-          if grep -q "${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "✔ DTS registered in mk" >> $REPORT
-          else
-            echo "❌ DTS NOT registered in mk" >> $REPORT
-          fi
-
-          echo "" >> $REPORT
-          echo "Checking profile in mk..." >> $REPORT
-          if grep -q "Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "✔ Profile registered in mk" >> $REPORT
-          else
-            echo "❌ Profile NOT registered in mk" >> $REPORT
-          fi
-
-          echo "" >> $REPORT
-          echo "Checking DEVICE_DTS..." >> $REPORT
-          grep -n "DEVICE_DTS" "${{ env.MK_FILE }}" >> $REPORT || echo "❌ DEVICE_DTS missing" >> $REPORT
-
-      - name: Upload 3-piece report
-        uses: actions/upload-artifact@v4
-        with:
-          name: 3piece-report
-          path: 3piece_report.txt
-
-      # ⭐ 新增：release 目录结构
-      - name: Generate release directory structure
-        run: |
-          RELEASE_DIR="release-${{ env.PROFILE }}"
-          mkdir -p "$RELEASE_DIR"
-
-          cp ${{ env.TARGET_DIR }}/*sysupgrade.bin "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/*initramfs-kernel.bin "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/*.manifest "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/*.buildinfo "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/sha256sums.txt "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/profiles.txt "$RELEASE_DIR"/
-          cp ${{ env.TARGET_DIR }}/profiles.json "$RELEASE_DIR"/
-
-      - name: Upload release directory
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ env.PROFILE }}
-          path: release-${{ env.PROFILE }}
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
