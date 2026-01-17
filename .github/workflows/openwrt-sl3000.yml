@@ -16,7 +16,7 @@ jobs:
   check-dts:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source (force latest master)
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           ref: master
@@ -37,20 +37,14 @@ jobs:
       - name: Check DTS exists
         run: |
           if [ ! -f "${{ env.DTS_FILE }}" ]; then
-            echo "❌ DTS not found: ${{ env.DTS_FILE }}"
+            echo "❌ DTS not found"
             exit 1
           fi
 
       - name: Check mk ↔ DTS consistency
         run: |
-          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "❌ mk missing Device/${{ env.PROFILE }}"
-            exit 1
-          fi
-          if ! grep -q "DEVICE_DTS *:= *${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "❌ mk DEVICE_DTS mismatch (expect ${{ env.DTS_NAME }})"
-            exit 1
-          fi
+          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || { echo "❌ mk missing device"; exit 1; }
+          grep -q "DEVICE_DTS *:= *${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || { echo "❌ mk DTS mismatch"; exit 1; }
 
       - name: Check DTS syntax
         run: |
@@ -71,19 +65,15 @@ jobs:
             esac
           done
 
-      - name: Dump raw filogic.mk (show tabs, CR, hidden chars)
+      - name: Dump filogic.mk
         run: |
-          echo "===== RAW filogic.mk PATH ====="
-          find target/linux/mediatek -name "filogic.mk" -print
-          echo "===== RAW filogic.mk CONTENT ====="
-          sed -n '1,200p' $(find target/linux/mediatek -name "filogic.mk" | head -n 1) \
-            | sed -e 's/\t/[TAB]/g' -e 's/\r/[CR]/g'
+          sed -n '1,200p' "${{ env.MK_FILE }}" | sed -e 's/\t/[TAB]/g' -e 's/\r/[CR]/g'
 
   build:
     runs-on: ubuntu-22.04
     needs: check-dts
     steps:
-      - name: Checkout source (force latest master)
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           ref: master
@@ -100,6 +90,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates
+
+      - name: Clean build cache
+        run: |
+          echo "=== Clean build_dir, staging_dir, tmp ==="
+          rm -rf build_dir staging_dir tmp
+          rm -rf dl/*.tmp || true
+          find . -name "*.rej" -delete
+          find . -name "*.orig" -delete
+
+      - name: Full OpenWrt clean
+        run: |
+          make clean
+          make dirclean
 
       - name: Feeds update/install
         run: |
@@ -120,10 +123,7 @@ jobs:
 
       - name: Verify config ↔ mk consistency
         run: |
-          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-            echo "❌ defconfig did not select sl3000-emmc"
-            exit 1
-          fi
+          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || { echo "❌ defconfig mismatch"; exit 1; }
 
       - name: Build firmware
         run: |
