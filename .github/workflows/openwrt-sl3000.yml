@@ -56,7 +56,7 @@ jobs:
         run: |
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
-      - name: Filter patches (keep MT7981/filogic)
+      - name: Filter patches (keep only mt7981/filogic)
         run: |
           cd target/linux/mediatek/patches-6.12
           for f in *; do
