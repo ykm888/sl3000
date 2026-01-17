@@ -22,13 +22,21 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      # 2. 你的仓库（包含 fragment.config + 三件套）
+      # 2. 你的仓库（三件套 + fragment.config）
       - name: Checkout your repo
         uses: actions/checkout@v4
         with:
           path: myrepo
 
-      # 3. 安装依赖
+      # 3. 三件套检测（延续上一版）
+      - name: Validate 3-piece set
+        run: |
+          test -f myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+          test -f myrepo/target/linux/mediatek/image/filogic.mk
+          test -f myrepo/fragment.config
+          echo "3-piece set OK"
+
+      # 4. 构建依赖 + ccache（延续上一版）
       - name: Install deps
         run: |
           sudo apt-get update
@@ -37,7 +45,17 @@ jobs:
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
           echo 'export PATH="/usr/lib/ccache:$PATH"' >> $GITHUB_ENV
 
-      # 4. 深度磁盘优化
+      # 5. 清理构建缓存（延续上一版）
+      - name: Clean build cache
+        run: |
+          rm -rf build_dir staging_dir tmp
+          rm -rf dl/*.tmp || true
+          find . -name "*.rej" -delete
+          find . -name "*.orig" -delete
+          make clean
+          make dirclean
+
+      # 6. 深度优化磁盘空间（延续上一版）
       - name: Optimize disk space
         run: |
           sudo apt-get clean
@@ -49,20 +67,20 @@ jobs:
           sudo apt-get autoremove -y
           sudo rm -rf /tmp/* /var/tmp/*
 
-      # 5. 使用 sbwml feeds（方案 A）
+      # 7. sbwml feeds（延续方案 A）
       - name: Patch feeds.conf.default for sbwml
         run: |
           sed -i 's|src-git luci .*|src-git luci https://github.com/sbwml/luci.git;master|' feeds.conf.default
           sed -i 's|src-git packages .*|src-git packages https://github.com/sbwml/packages.git;master|' feeds.conf.default
           echo "src-git passwall2 https://github.com/sbwml/luci-app-passwall2.git;main" >> feeds.conf.default
 
-      # 6. Feeds
+      # 8. Feeds（延续上一版）
       - name: Feeds update/install
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 7. 自动生成完整 .config（无 EOF）
+      # 9. 自动生成完整 .config（新增功能）
       - name: Generate full config
         run: |
           # 写入基础 target
@@ -70,13 +88,13 @@ jobs:
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-          # 叠加你的 fragment（你仓库里的）
+          # 叠加你原来的配置片段
           cat myrepo/fragment.config >> .config
 
-          # 自动补齐所有依赖（非交互式）
+          # 自动补齐依赖，生成完整可构建的 .config
           make defconfig
 
-      # 8. 覆盖 DTS/mk（三件套）
+      # 10. 覆盖三件套（延续上一版）
       - name: Apply DTS/mk
         run: |
           cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/*.dts \
@@ -85,19 +103,19 @@ jobs:
           cp myrepo/target/linux/mediatek/image/filogic.mk \
              target/linux/mediatek/image/
 
-      # 9. 构建固件
+      # 11. 构建固件（延续上一版）
       - name: Build firmware
         run: |
           make -j"$(nproc)" || make -j1 V=s
 
-      # 10. 上传完整 .config（可选）
+      # 12. 上传完整 .config（新增）
       - name: Upload full config
         uses: actions/upload-artifact@v4
         with:
           name: full-config
           path: .config
 
-      # 11. 上传固件
+      # 13. 上传固件（延续上一版）
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
