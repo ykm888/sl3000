@@ -25,6 +25,22 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # ⭐ 新增：自动删除所有非 MT7981 的补丁（彻底解决 170 补丁冲突）
+      - name: Remove unrelated patches (only keep MT7981)
+        run: |
+          cd target/linux/mediatek/patches-6.12
+          for p in *.patch; do
+            case "$p" in
+              *7981*|*sl3000*|*filogic* )
+                echo "Keep: $p"
+                ;;
+              * )
+                echo "Remove unrelated patch: $p"
+                rm -f "$p"
+                ;;
+            esac
+          done
+
       - name: Install dtc
         run: |
           sudo apt-get update
@@ -62,7 +78,6 @@ jobs:
             echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
           fi
 
-      # ✅ 生成完整 .config（对齐三件套，非交互、可复现）
       - name: Auto generate .config
         run: |
           echo "CONFIG_TARGET_mediatek=y" > .config
@@ -71,7 +86,6 @@ jobs:
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      # ✅ 真正的三件套检测（fail-fast）
       - name: Validate 3-piece consistency (DTS / mk / profile)
         run: |
           DTS="${{ env.DTS_NAME }}"
