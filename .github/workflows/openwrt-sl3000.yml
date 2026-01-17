@@ -113,13 +113,13 @@ jobs:
         run: |
           make target/compile
 
-      - name: Configure target
+      - name: Configure target (non-interactive)
         run: |
           rm -f .config
           echo "CONFIG_TARGET_mediatek=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          make defconfig
+          KCONFIG_NONINTERACTIVE=1 make defconfig
 
       - name: Verify config ↔ mk consistency
         run: |
