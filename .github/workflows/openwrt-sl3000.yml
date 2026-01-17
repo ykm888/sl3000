@@ -33,18 +33,13 @@ jobs:
         with:
           path: myrepo
 
-      - name: Apply your DTS/mk/config 三件套
+      - name: Apply your DTS/mk 三件套
         run: |
-          echo "=== Apply DTS ==="
           cp myrepo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
              target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
-          echo "=== Apply filogic.mk ==="
           cp myrepo/target/linux/mediatek/image/filogic.mk \
              target/linux/mediatek/image/
-
-          echo "=== Apply .config (base) ==="
-          cp myrepo/.config .config
 
       # ===========================
       # 3. 安装依赖
@@ -76,13 +71,8 @@ jobs:
           cd target/linux/mediatek/patches-6.12
           for f in *; do
             case "$f" in
-              *7981*|*filogic*|*mediatek*|*generic* )
-                echo "Keep: $f"
-                ;;
-              * )
-                echo "Remove: $f"
-                rm -f "$f"
-                ;;
+              *7981*|*filogic*|*mediatek*|*generic* ) ;;
+              * ) rm -f "$f" ;;
             esac
           done
 
@@ -95,30 +85,95 @@ jobs:
           ./scripts/feeds install -a
 
       # ===========================
-      # 7. olddefconfig（绝不触发 menuconfig）
+      # 7. 自动生成干净 .config
       # ===========================
-      - name: Configure target (non-interactive)
+      - name: Generate clean config
         run: |
-          echo "=== Force non-interactive config ==="
+          rm -f .config
+          touch .config
           make olddefconfig
 
       # ===========================
-      # 8. 构建固件
+      # 8. 注入你的配置（逐行 echo，无 EOF）
+      # ===========================
+      - name: Inject custom config
+        run: |
+          echo CONFIG_TARGET_mediatek=y >> .config
+          echo CONFIG_TARGET_mediatek_filogic=y >> .config
+          echo CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y >> .config
+
+          echo CONFIG_PACKAGE_luci=y >> .config
+          echo CONFIG_PACKAGE_luci-theme-bootstrap=y >> .config
+          echo CONFIG_PACKAGE_luci-compat=y >> .config
+
+          echo CONFIG_PACKAGE_kmod-mt76=y >> .config
+          echo CONFIG_PACKAGE_kmod-mt7981-firmware=y >> .config
+          echo CONFIG_PACKAGE_mt7981-wo-firmware=y >> .config
+
+          echo CONFIG_PACKAGE_kmod-mt7530=y >> .config
+          echo CONFIG_PACKAGE_kmod-dsa=y >> .config
+          echo CONFIG_PACKAGE_kmod-dsa-mt7530=y >> .config
+
+          echo CONFIG_PACKAGE_kmod-mmc=y >> .config
+          echo CONFIG_PACKAGE_kmod-mmc-mtk=y >> .config
+
+          echo CONFIG_PACKAGE_kmod-usb3=y >> .config
+          echo CONFIG_PACKAGE_kmod-usb2=y >> .config
+
+          echo CONFIG_PACKAGE_kmod-gpio-button-hotplug=y >> .config
+          echo CONFIG_PACKAGE_kmod-leds-gpio=y >> .config
+
+          echo CONFIG_PACKAGE_libustream-openssl=y >> .config
+          echo CONFIG_PACKAGE_wpad-openssl=y >> .config
+
+          echo CONFIG_PACKAGE_uboot-envtools=y >> .config
+          echo CONFIG_PACKAGE_fitblk=y >> .config
+
+          echo CONFIG_PACKAGE_luci-app-passwall2=y >> .config
+          echo CONFIG_PACKAGE_ip-full=y >> .config
+          echo CONFIG_PACKAGE_dns2socks=y >> .config
+          echo CONFIG_PACKAGE_ipt2socks=y >> .config
+          echo CONFIG_PACKAGE_microsocks=y >> .config
+          echo CONFIG_PACKAGE_kmod-tun=y >> .config
+          echo CONFIG_PACKAGE_xray-core=y >> .config
+          echo CONFIG_PACKAGE_shadowsocks-libev-ss-local=y >> .config
+          echo CONFIG_PACKAGE_shadowsocks-libev-ss-redir=y >> .config
+          echo CONFIG_PACKAGE_shadowsocks-libev-ss-server=y >> .config
+          echo CONFIG_PACKAGE_shadowsocks-libev-ss-tunnel=y >> .config
+
+          echo CONFIG_PACKAGE_dockerd=y >> .config
+          echo CONFIG_PACKAGE_docker=y >> .config
+          echo CONFIG_PACKAGE_docker-compose=y >> .config
+          echo CONFIG_PACKAGE_luci-app-dockerman=y >> .config
+          echo CONFIG_PACKAGE_kmod-fs-overlay=y >> .config
+          echo CONFIG_PACKAGE_kmod-fs-ext4=y >> .config
+          echo CONFIG_PACKAGE_kmod-fs-autofs4=y >> .config
+          echo CONFIG_PACKAGE_kmod-br-netfilter=y >> .config
+          echo CONFIG_PACKAGE_kmod-nf-conntrack=y >> .config
+          echo CONFIG_PACKAGE_kmod-nf-conntrack6=y >> .config
+          echo CONFIG_PACKAGE_kmod-nf-nat=y >> .config
+          echo CONFIG_PACKAGE_kmod-nf-nat6=y >> .config
+          echo CONFIG_PACKAGE_kmod-veth=y >> .config
+
+          make olddefconfig
+
+      # ===========================
+      # 9. 构建固件
       # ===========================
       - name: Build firmware
         run: |
           make -j"$(nproc)" || make -j1 V=s
 
       # ===========================
-      # 9. 验证产物
+      # 10. 验证产物
       # ===========================
       - name: Verify output
         run: |
           ls -lh "${{ env.TARGET_DIR }}"
-          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
+          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || exit 1
 
       # ===========================
-      # 10. 上传固件
+      # 11. 上传固件
       # ===========================
       - name: Upload firmware
         uses: actions/upload-artifact@v4
