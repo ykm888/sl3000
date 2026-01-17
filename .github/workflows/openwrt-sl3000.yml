@@ -22,10 +22,13 @@ jobs:
   check-dts:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout source
+      - name: Checkout source (your repo)
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          fetch-depth: 0
 
-      # ⭐ 新增：自动删除所有非 MT7981 的补丁（彻底解决 170 补丁冲突）
+      # 预过滤补丁：只保留 MT7981 / sl3000 / filogic
       - name: Remove unrelated patches (only keep MT7981)
         run: |
           cd target/linux/mediatek/patches-6.12
@@ -103,14 +106,43 @@ jobs:
 
           echo "✔ 3-piece consistency OK"
 
+      # 补丁提前检测（fail-fast，不构建工具链）
+      - name: Pre-check kernel patches (fail-fast)
+        run: |
+          echo "Running kernel patch pre-check..."
+          make target/linux/clean
+          IGNORE_ERRORS=1 make target/linux/prepare V=s || true
+          if ls build_dir/target-*/linux-*/linux-*/patches/*.rej 2>/dev/null; then
+            echo "❌ Patch conflict detected (fail-fast)"
+            exit 1
+          fi
+          echo "✔ Kernel patch pre-check OK"
+
   build:
     runs-on: ubuntu-22.04
     needs: check-dts
     steps:
-      - name: Checkout source
+      - name: Checkout source (your repo)
         uses: actions/checkout@v4
         with:
+          repository: ${{ github.repository }}
           fetch-depth: 0
+
+      # 再次过滤补丁（构建阶段双保险）
+      - name: Remove unrelated patches (only keep MT7981)
+        run: |
+          cd target/linux/mediatek/patches-6.12
+          for p in *.patch; do
+            case "$p" in
+              *7981*|*sl3000*|*filogic* )
+                echo "Keep: $p"
+                ;;
+              * )
+                echo "Remove unrelated patch: $p"
+                rm -f "$p"
+                ;;
+            esac
+          done
 
       - name: Free disk space
         run: |
@@ -143,14 +175,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-${{ env.PROFILE }}-
 
+      # 工具链缓存（失败也缓存）
+      - name: Cache toolchain
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: |
+            staging_dir/toolchain-*
+            staging_dir/host
+            build_dir/toolchain-*
+            build_dir/host
+          key: ${{ runner.os }}-toolchain-${{ hashFiles('toolchain/**', 'tools/**', 'include/**') }}
+          restore-keys: |
+            ${{ runner.os }}-toolchain-
+
       - name: Configure ccache
         run: |
           ccache -M 2G
           ccache -s
-
-      - name: Force rebuild host toolchain
-        run: |
-          rm -rf staging_dir/toolchain-* staging_dir/host pkginfo/toolchain || true
 
       - name: Feeds auto repair with retry
         run: |
