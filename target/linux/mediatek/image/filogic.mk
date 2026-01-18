@@ -39,7 +39,7 @@ define Device/sl3000-emmc
   DEVICE_VARIANT := eMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
   DEVICE_DTS_DIR := ../dts
-  SUPPORTED_DEVICES := sl3000-emmc
+  SUPPORTED_DEVICES := sl3000-emmc mt7981b-sl3000-emmc
   DEVICE_PACKAGES := \
     kmod-usb3 \
     kmod-usb2 \
@@ -71,9 +71,3 @@ define Device/sl3000-emmc
 endef
 
 TARGET_DEVICES += sl3000-emmc
-
-# ===========================
-#   Include generic rules
-# ===========================
-
-$(eval $(call BuildImage))
