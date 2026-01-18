@@ -55,7 +55,6 @@ jobs:
 
       - name: Use provided .config
         run: |
-          # 确保仓库根目录已有完整 .config
           test -f .config || { echo ".config missing"; exit 1; }
           make defconfig
 
@@ -83,8 +82,7 @@ jobs:
 
       - name: Clean build cache
         run: |
-          rm -rf build_dir staging_dir tmp
-          rm -rf dl
+          rm -rf build_dir staging_dir tmp dl
           make clean
 
       - name: Cache feeds
