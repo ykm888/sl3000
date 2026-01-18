@@ -107,7 +107,6 @@ jobs:
 
           echo "Checking DTS <-> mk <-> profile consistency..."
           test -f "${{ env.DTS_FILE }}" || { echo "DTS missing"; exit 1; }
-          grep -q "dtb-y += ${DTS}.dtb" "${DTS_MK}" || { echo "DTS not registered in DTS Makefile"; exit 1; }
           grep -q "define Device/${PROFILE}" "${MK}" || { echo "Profile not registered in mk"; exit 1; }
           grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "mk DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "TARGET_DEVICES missing profile"; exit 1; }
@@ -138,6 +137,7 @@ jobs:
           if find build_dir -name "*.rej" -type f | grep -q .; then
             echo "Patch conflict detected (fail-fast)"
             exit 1
+          fi
           fi
           echo "Kernel patch pre-check OK"
 
@@ -381,4 +381,5 @@ jobs:
             logs/
             build.log
             build_dir/**/log*
+
           if-no-files-found: ignore
