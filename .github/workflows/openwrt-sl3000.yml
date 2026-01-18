@@ -20,8 +20,18 @@ env:
   CCACHE_DIR: ~/.ccache
 
 jobs:
-  test:
+  check-dts:
     runs-on: ubuntu-22.04
     steps:
-      - name: Say hello
-        run: echo "hello"
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Verify DTS file exists
+        run: |
+          if [ ! -f "${{ env.DTS_FILE }}" ]; then
+            echo "DTS file missing"
+            exit 1
+          fi
+
+      - name: Say OK
+        run: echo "check-dts minimal OK"
