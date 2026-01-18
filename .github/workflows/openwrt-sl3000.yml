@@ -48,16 +48,14 @@ jobs:
             echo "" >> "${{ env.MK_FILE }}"
             echo "define Device/${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
             echo "  DEVICE_DTS := ${{ env.DTS_NAME }}" >> "${{ env.MK_FILE }}"
+            echo "  DEVICE_TITLE := SL-3000 eMMC Board" >> "${{ env.MK_FILE }}"
             echo "endef" >> "${{ env.MK_FILE }}"
           }
           grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}" || echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
 
-      - name: Auto generate .config
+      - name: Use provided .config
         run: |
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
+          cp .config build/.config
           make defconfig
 
       - name: Validate 3-piece consistency
@@ -137,9 +135,6 @@ jobs:
 
       - name: Build packages
         run: make package/compile -j$(nproc) V=s IGNORE_ERRORS=m
-
-      - name: Prepare Config
-        run: make defconfig
 
       - name: Build firmware
         run: make -j$(nproc) V=s IGNORE_ERRORS=m
