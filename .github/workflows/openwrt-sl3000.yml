@@ -80,11 +80,8 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      - name: Clean build cache
-        run: |
-          rm -rf build_dir staging_dir tmp dl
-          make clean
-          # 保留根目录下的 .config，不要删除
+      # 不清理缓存，避免触发 menuconfig
+      # 保留 .config，直接构建
 
       - name: Cache feeds
         uses: actions/cache@v4
