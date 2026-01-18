@@ -55,6 +55,8 @@ jobs:
 
       - name: Use provided .config
         run: |
+          # 确保仓库根目录已有完整 .config
+          test -f .config || { echo ".config missing"; exit 1; }
           make defconfig
 
       - name: Validate 3-piece consistency
