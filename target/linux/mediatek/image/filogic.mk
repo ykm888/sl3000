@@ -19,6 +19,9 @@ define Device/mt7981-default
   DEVICE_PACKAGES := \
     kmod-usb3 kmod-usb2 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk
+  IMAGE_SIZE := 256m
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
 
 TARGET_DEVICES += mt7981-default
@@ -50,8 +53,15 @@ define Device/sl3000-emmc
     fstools \
     block-mount \
     uboot-envtools \
-    fitblk
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+    fitblk \
+    luci-app-passwall2 xray-core \
+    shadowsocks-libev-ss-local shadowsocks-libev-ss-redir \
+    shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel \
+    dockerd docker docker-compose luci-app-dockerman
+
+  IMAGE_SIZE := 256m
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
 
 TARGET_DEVICES += sl3000-emmc
