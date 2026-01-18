@@ -80,8 +80,20 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      # 不清理缓存，避免触发 menuconfig
-      # 保留 .config，直接构建
+      - name: Filter irrelevant patches
+        run: |
+          PATCH_DIR="target/linux/mediatek/patches-6.12"
+          echo "Filtering patches in $PATCH_DIR ..."
+          # 删除所有和 mt7988 / bpi-r4 相关的补丁
+          find "$PATCH_DIR" -type f -name "*mt7988*" -delete
+          find "$PATCH_DIR" -type f -name "*bpi-r4*" -delete
+          # 删除其他不相关的补丁
+          find "$PATCH_DIR" -type f -name "*policycoreutils*" -delete
+          find "$PATCH_DIR" -type f -name "*pcat-manager*" -delete
+          find "$PATCH_DIR" -type f -name "*lldpd*" -delete
+          find "$PATCH_DIR" -type f -name "*kexec-tools*" -delete
+          echo "Remaining patches:"
+          ls "$PATCH_DIR"
 
       - name: Cache feeds
         uses: actions/cache@v4
