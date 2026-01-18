@@ -75,37 +75,37 @@
 
             partitions {
                 compatible = "fixed-partitions";
-                #address-cells = <1>;
-                #size-cells = <1>;
+                #address-cells = <2>;
+                #size-cells = <2>;
 
                 partition@0 {
                     label = "kernel";
-                    reg = <0x00000000 0x02000000>; /* 32MB */
+                    reg = <0x0 0x00000000  0x0 0x02000000>; /* 32MB */
                 };
 
                 partition@2000000 {
                     label = "rootfs";
-                    reg = <0x02000000 0x20000000>; /* 512MB */
+                    reg = <0x0 0x02000000  0x0 0x20000000>; /* 512MB */
                 };
 
                 partition@22000000 {
                     label = "rootfs_data";
-                    reg = <0x22000000 0x100000000>; /* 4GB */
+                    reg = <0x0 0x22000000  0x1 0x00000000>; /* 4GB */
                 };
 
                 partition@122000000 {
                     label = "docker";
-                    reg = <0x122000000 0xEE0000000>; /* 60GB */
+                    reg = <0x1 0x22000000  0xE 0xE0000000>; /* 60GB */
                 };
 
                 partition@522000000 {
                     label = "swap";
-                    reg = <0x522000000 0x80000000>; /* 2GB */
+                    reg = <0x5 0x22000000  0x0 0x80000000>; /* 2GB */
                 };
 
                 partition@5A2000000 {
                     label = "data";
-                    reg = <0x5A2000000 0x0>; /* 剩余空间 (~61GB) */
+                    reg = <0x5 0xA2000000  0x0 0x60000000>; /* 1.5GB 剩余空间示例 */
                 };
             };
         };
