@@ -55,7 +55,6 @@ jobs:
 
       - name: Use provided .config
         run: |
-          cp .config build/.config
           make defconfig
 
       - name: Validate 3-piece consistency
