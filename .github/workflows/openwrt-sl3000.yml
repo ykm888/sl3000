@@ -29,6 +29,7 @@ jobs:
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
 
+      # 清理 DTS 文件中的 BOM/隐藏字符
       - name: Clean DTS file
         run: |
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
@@ -80,6 +81,13 @@ jobs:
           sudo apt-get install -y build-essential flex bison gawk gettext \
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates
+
+      # 清理缓存目录，避免旧文件污染
+      - name: Clean build cache
+        run: |
+          rm -rf build_dir staging_dir tmp
+          rm -rf dl
+          make clean
 
       - name: Cache feeds
         uses: actions/cache@v4
