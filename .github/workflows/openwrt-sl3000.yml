@@ -108,7 +108,7 @@ jobs:
           grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "TARGET_DEVICES missing"; exit 1; }
 
-      - name: Clean filogic.mk (方案一：只保留当前设备)
+      - name: Clean filogic.mk (only keep current device)
         run: |
           sed -i "s/^TARGET_DEVICES +=/# &/" "${{ env.MK_FILE }}"
           echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
@@ -210,8 +210,7 @@ jobs:
           key: ${{ runner.os }}-toolchain-${{ hashFiles('Makefile', 'Config.in') }}
           restore-keys: |
             ${{ runner.os }}-toolchain-
-
-      - name: Configure ccache
+            - name: Configure ccache
         run: |
           ccache -M 2G
           ccache -s
@@ -243,32 +242,217 @@ jobs:
         run: |
           echo "START_TS=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Build tools and toolchain
+      #####################################################################
+      #  工具链分阶段构建 + 自动重试 + 心跳检测 + 超时保护
+      #####################################################################
+
+      - name: Build tools (split with retry + heartbeat + timeout)
         run: |
           set -e
-          T0=$(date +%s)
-          make tools/install -j"$(nproc)" || make tools/install -j1 V=s
-          make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
-          T1=$(date +%s)
-          echo "TOOLS_TIME=$((T1-T0))" >> $GITHUB_ENV
 
-      - name: Build firmware
+          TOOLS="gmp mpfr mpc bison util-linux bc elfutils findutils mkimage mtd-utils e2fsprogs erofs-utils padjffs2 quilt"
+
+          MAX_RETRIES=3
+          HEARTBEAT=600
+          TIMEOUT=3600
+
+          LAST_OUTPUT=$(date +%s)
+          START=$(date +%s)
+
+          monitor() {
+            while true; do
+              NOW=$(date +%s)
+              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
+                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              if [ $((NOW - START)) -ge $TIMEOUT ]; then
+                echo "Timeout: tools stage exceeded ${TIMEOUT}s"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              sleep 30
+            done
+          }
+
+          for t in $TOOLS; do
+            echo "Building tool: $t"
+
+            monitor &
+            MON_PID=$!
+
+            {
+              n=1
+              while [ $n -le $MAX_RETRIES ]; do
+                echo "Attempt $n: make -C tools/$t compile"
+                if make -C tools/$t compile -j"$(nproc)" V=s; then
+                  break
+                fi
+                n=$((n+1))
+                sleep 3
+              done
+            } 2>&1 | while IFS= read -r line; do
+              echo "$line"
+              LAST_OUTPUT=$(date +%s)
+            done &
+            BUILD_PID=$!
+
+            wait $BUILD_PID
+            kill $MON_PID || true
+          done
+
+      - name: Install tools (retry + timeout)
         run: |
           set -e
-          K0=$(date +%s)
+          MAX_RETRIES=3
+          TIMEOUT=1800
+          START=$(date +%s)
 
-          if make -j"$(nproc)" V=s; then
-            echo "Parallel build OK"
-          else
-            echo "Parallel failed, retry single core"
-            make -j1 V=s || {
-              echo "Retry with IGNORE_ERRORS"
-              make -j1 V=s IGNORE_ERRORS=m || true
-            }
-          fi
+          retry() {
+            local cmd="$@"
+            local n=1
+            while [ $n -le $MAX_RETRIES ]; do
+              echo "Attempt $n: $cmd"
+              if $cmd; then
+                return 0
+              fi
+              sleep 3
+              n=$((n+1))
+            done
+            return 1
+          }
 
-          K1=$(date +%s)
-          echo "KERNEL_TIME=$((K1-K0))" >> $GITHUB_ENV
+          timeout_guard() {
+            NOW=$(date +%s)
+            if [ $((NOW - START)) -ge $TIMEOUT ]; then
+              echo "Timeout: install tools exceeded ${TIMEOUT}s"
+              exit 1
+            fi
+          }
+
+          timeout_guard
+          retry make tools/install -j"$(nproc)" V=s
+
+      - name: Build toolchain (split + retry + heartbeat + timeout)
+        run: |
+          set -e
+
+          MAX_RETRIES=3
+          HEARTBEAT=600
+          TIMEOUT=5400
+
+          LAST_OUTPUT=$(date +%s)
+          START=$(date +%s)
+
+          monitor() {
+            while true; do
+              NOW=$(date +%s)
+              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
+                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              if [ $((NOW - START)) -ge $TIMEOUT ]; then
+                echo "Timeout: toolchain stage exceeded ${TIMEOUT}s"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              sleep 30
+            done
+          }
+
+          STAGES="
+            toolchain/gcc/initial/compile
+            toolchain/binutils/compile
+            toolchain/gcc/final/compile
+          "
+
+          for s in $STAGES; do
+            echo "Building toolchain stage: $s"
+
+            monitor &
+            MON_PID=$!
+
+            {
+              n=1
+              while [ $n -le $MAX_RETRIES ]; do
+                echo "Attempt $n: make $s"
+                if make $s -j"$(nproc)" V=s; then
+                  break
+                fi
+                n=$((n+1))
+                sleep 3
+              done
+            } 2>&1 | while IFS= read -r line; do
+              echo "$line"
+              LAST_OUTPUT=$(date +%s)
+            done &
+            BUILD_PID=$!
+
+            wait $BUILD_PID
+            kill $MON_PID || true
+          done
+
+      #####################################################################
+      #  固件构建：自动重试 + 心跳检测 + 超时保护
+      #####################################################################
+
+      - name: Build firmware (retry + heartbeat + timeout)
+        run: |
+          set -e
+
+          MAX_RETRIES=3
+          HEARTBEAT=600
+          TIMEOUT=7200
+
+          LAST_OUTPUT=$(date +%s)
+          START=$(date +%s)
+
+          monitor() {
+            while true; do
+              NOW=$(date +%s)
+              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
+                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              if [ $((NOW - START)) -ge $TIMEOUT ]; then
+                echo "Timeout: firmware build exceeded ${TIMEOUT}s"
+                kill -9 $BUILD_PID || true
+                exit 1
+              fi
+              sleep 30
+            done
+          }
+
+          monitor &
+          MON_PID=$!
+
+          {
+            n=1
+            while [ $n -le $MAX_RETRIES ]; do
+              echo "Attempt $n: make"
+              if make -j"$(nproc)" V=s; then
+                break
+              fi
+              echo "Parallel failed, retry single core"
+              if make -j1 V=s; then
+                break
+              fi
+              n=$((n+1))
+              sleep 3
+            done
+          } 2>&1 | while IFS= read -r line; do
+            echo "$line"
+            LAST_OUTPUT=$(date +%s)
+          done &
+          BUILD_PID=$!
+
+          wait $BUILD_PID
+          kill $MON_PID || true
+
+      #####################################################################
 
       - name: Verify firmware output
         run: |
@@ -288,8 +472,6 @@ jobs:
           TOTAL=$((END_TS - START_TS))
           mkdir -p logs
           {
-            echo "Tools+Toolchain: ${TOOLS_TIME}s"
-            echo "Kernel+Image:    ${KERNEL_TIME}s"
             echo "Total:           ${TOTAL}s"
             echo "Target:          ${{ env.PROFILE }}"
             echo "Date UTC:        $(date -u +'%Y-%m-%d %H:%M:%S')"
