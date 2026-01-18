@@ -2,10 +2,6 @@
 
 /dts-v1/;
 
-#include <dt-bindings/interrupt-controller/arm-gic.h>
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-
 / {
     compatible = "sl,3000-emmc", "mediatek,mt7981";
     model = "SL-3000 eMMC Board";
@@ -63,14 +59,14 @@
         uart0: serial@11002000 {
             compatible = "mediatek,mt6577-uart";
             reg = <0x0 0x11002000 0x0 0x400>;
-            interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+            interrupts = <0 123 4>; /* GIC_SPI=0, IRQ_TYPE_LEVEL_HIGH=4 */
             status = "okay";
         };
 
         mmc0: mmc@11230000 {
             compatible = "mediatek,mt7981-mmc";
             reg = <0x0 0x11230000 0x0 0x1000>;
-            interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+            interrupts = <0 143 4>;
             bus-width = <8>;
             non-removable;
             cap-mmc-highspeed;
@@ -117,7 +113,7 @@
         eth: ethernet@15100000 {
             compatible = "mediatek,mt7981-eth";
             reg = <0x0 0x15100000 0x0 0x80000>;
-            interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+            interrupts = <0 196 4>;
             status = "okay";
 
             mac@0 {
@@ -147,15 +143,15 @@
             compatible = "gpio-leds";
             led-0 {
                 label = "red:status";
-                gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
+                gpios = <&pio 10 1>; /* GPIO_ACTIVE_HIGH=1 */
             };
             led-1 {
                 label = "green:status";
-                gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+                gpios = <&pio 11 1>;
             };
             led-2 {
                 label = "blue:status";
-                gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+                gpios = <&pio 12 1>;
             };
         };
 
@@ -163,8 +159,8 @@
             compatible = "gpio-keys";
             reset {
                 label = "reset";
-                gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-                linux,code = <KEY_RESTART>;
+                gpios = <&pio 1 0>; /* GPIO_ACTIVE_LOW=0 */
+                linux,code = <0x198>; /* KEY_RESTART */
             };
         };
     };
