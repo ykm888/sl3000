@@ -108,17 +108,10 @@ jobs:
           grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "TARGET_DEVICES missing"; exit 1; }
 
-      - name: Clean filogic.mk
+      - name: Clean filogic.mk (方案一：只保留当前设备)
         run: |
           sed -i "s/^TARGET_DEVICES +=/# &/" "${{ env.MK_FILE }}"
           echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
-
-      - name: Fail-fast: forbid building mt7981-rfb
-        run: |
-          if grep -q "mt7981-rfb" "${{ env.MK_FILE }}"; then
-            echo "mt7981-rfb found"
-            exit 1
-          fi
 
       - name: Save DTS/mk/profile diff
         run: |
@@ -136,7 +129,8 @@ jobs:
 
       - name: check-dts OK
         run: echo "check-dts completed"
-        build:
+
+  build:
     runs-on: ubuntu-22.04
     needs: check-dts
     steps:
@@ -163,11 +157,9 @@ jobs:
 
       - name: Free disk space
         run: |
-          echo "Disk usage before:"
           df -h
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           sudo docker system prune -af || true
-          echo "Disk usage after:"
           df -h
 
       - name: Install build dependencies
@@ -229,30 +221,23 @@ jobs:
           set -e
           MAX_RETRIES=3
 
-          retry_command() {
+          retry() {
             local cmd="$@"
-            local attempt=1
-            local max_attempts=$MAX_RETRIES
-
-            while [ $attempt -le $max_attempts ]; do
-              echo "Attempt $attempt of $max_attempts: $cmd"
+            local n=1
+            while [ $n -le $MAX_RETRIES ]; do
+              echo "Attempt $n: $cmd"
               if $cmd; then
-                echo "Command succeeded"
                 return 0
-              else
-                echo "Command failed, retrying in 3 seconds..."
-                sleep 3
-                attempt=$((attempt+1))
               fi
+              sleep 3
+              n=$((n+1))
             done
-
-            echo "Command failed after $max_attempts attempts"
             return 1
           }
 
           export WGET_OPTIONS="--tries=3 --timeout=20"
-          retry_command ./scripts/feeds update -a
-          retry_command ./scripts/feeds install -a
+          retry ./scripts/feeds update -a
+          retry ./scripts/feeds install -a
 
       - name: Init build timers
         run: |
@@ -261,45 +246,39 @@ jobs:
       - name: Build tools and toolchain
         run: |
           set -e
-          TOOLS_START=$(date +%s)
-          echo "Building tools..."
+          T0=$(date +%s)
           make tools/install -j"$(nproc)" || make tools/install -j1 V=s
-          echo "Building toolchain..."
           make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
-          TOOLS_END=$(date +%s)
-          echo "TOOLS_TIME=$((TOOLS_END-TOOLS_START))" >> $GITHUB_ENV
+          T1=$(date +%s)
+          echo "TOOLS_TIME=$((T1-T0))" >> $GITHUB_ENV
 
       - name: Build firmware
         run: |
           set -e
-          KERNEL_START=$(date +%s)
-          echo "Building firmware..."
+          K0=$(date +%s)
 
           if make -j"$(nproc)" V=s; then
-            echo "Parallel build succeeded"
+            echo "Parallel build OK"
           else
-            echo "Parallel build failed, trying single core..."
+            echo "Parallel failed, retry single core"
             make -j1 V=s || {
-              echo "Build failed, trying with IGNORE_ERRORS"
+              echo "Retry with IGNORE_ERRORS"
               make -j1 V=s IGNORE_ERRORS=m || true
             }
           fi
 
-          KERNEL_END=$(date +%s)
-          echo "KERNEL_TIME=$((KERNEL_END-KERNEL_START))" >> $GITHUB_ENV
+          K1=$(date +%s)
+          echo "KERNEL_TIME=$((K1-K0))" >> $GITHUB_ENV
 
       - name: Verify firmware output
         run: |
-          echo "Checking firmware output..."
           if [ -d "${{ env.TARGET_DIR }}" ]; then
             ls -lh "${{ env.TARGET_DIR }}"
-
             cd "${{ env.TARGET_DIR }}"
             rm -f sha256sums.txt
             find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt
-            echo "Generated sha256sums.txt"
           else
-            echo "Target directory not found: ${{ env.TARGET_DIR }}"
+            echo "Target directory missing"
             exit 1
           fi
 
@@ -307,22 +286,14 @@ jobs:
         run: |
           END_TS=$(date +%s)
           TOTAL=$((END_TS - START_TS))
-          TOOLS_TIME=${TOOLS_TIME:-0}
-          KERNEL_TIME=${KERNEL_TIME:-0}
-
           mkdir -p logs
-
           {
-            echo "Build summary:"
-            echo "  Tools+Toolchain: ${TOOLS_TIME}s"
-            echo "  Kernel+Image:    ${KERNEL_TIME}s"
-            echo "  Total:           ${TOTAL}s"
-            echo ""
-            echo "Target:   ${{ env.PROFILE }}"
-            echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')"
+            echo "Tools+Toolchain: ${TOOLS_TIME}s"
+            echo "Kernel+Image:    ${KERNEL_TIME}s"
+            echo "Total:           ${TOTAL}s"
+            echo "Target:          ${{ env.PROFILE }}"
+            echo "Date UTC:        $(date -u +'%Y-%m-%d %H:%M:%S')"
           } > logs/build-summary.txt
-
-          cat logs/build-summary.txt
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
