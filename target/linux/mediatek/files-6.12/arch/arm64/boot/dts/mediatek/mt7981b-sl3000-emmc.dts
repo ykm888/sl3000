@@ -146,4 +146,5 @@
             linux,code = <KEY_RESTART>;
         };
     };
+
 };
