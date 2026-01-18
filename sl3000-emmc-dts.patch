@@ -1,0 +1,40 @@
+diff --git a/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts b/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+index abc123..def456 100644
+--- a/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
++++ b/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+@@ -90,6 +90,28 @@
+     status = "okay";
+ 
+     vmmc-supply = <&reg_3p3v>;
+     vqmmc-supply = <&reg_3p3v>;
+ 
+     status = "okay";
++
++    partitions {
++        compatible = "fixed-partitions";
++        #address-cells = <1>;
++        #size-cells = <1>;
++
++        partition@0 {
++            label = "bl2";
++            reg = <0x00000000 0x00040000>; /* 256KB */
++            read-only;
++        };
++
++        partition@40000 {
++            label = "uboot";
++            reg = <0x00040000 0x00100000>; /* 1MB */
++            read-only;
++        };
++
++        partition@140000 {
++            label = "firmware";
++            reg = <0x00140000 0x1fc00000>; /* ~508MB，根据 eMMC 实际容量调整 */
++        };
++
++        partition@20000000 {
++            label = "rootfs_data";
++            reg = <0x20000000 0x10000000>; /* 可选 overlay/f2fs */
++        };
++    };
+ };
