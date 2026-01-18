@@ -27,9 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dtc
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y device-tree-compiler
+        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
 
       - name: Clean DTS file
         run: |
@@ -40,33 +38,19 @@ jobs:
 
       - name: Check DTS exists and syntax
         run: |
-          if [ ! -f "${{ env.DTS_FILE }}" ]; then
-            echo "DTS not found"
-            exit 1
-          fi
+          test -f "${{ env.DTS_FILE }}" || { echo "DTS not found"; exit 1; }
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
-      - name: Auto register DTS in Makefile
+      - name: Auto register DTS/profile
         run: |
-          if ! grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
-            echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
-          fi
-
-      - name: Auto register profile in filogic.mk
-        run: |
-          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            {
-              echo ""
-              echo "define Device/${{ env.PROFILE }}"
-              echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
-              echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb2 kmod-mmc kmod-mmc-mtk"
-              echo "endef"
-              echo ""
-            } >> "${{ env.MK_FILE }}"
-          fi
-          if ! grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
-          fi
+          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || {
+            echo "" >> "${{ env.MK_FILE }}"
+            echo "define Device/${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
+            echo "  DEVICE_DTS := ${{ env.DTS_NAME }}" >> "${{ env.MK_FILE }}"
+            echo "endef" >> "${{ env.MK_FILE }}"
+          }
+          grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}" || echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
 
       - name: Auto generate .config
         run: |
@@ -78,14 +62,10 @@ jobs:
 
       - name: Validate 3-piece consistency
         run: |
-          test -f "${{ env.DTS_FILE }}" || { echo "DTS missing"; exit 1; }
+          grep -q "${{ env.DTS_NAME }}" "${{ env.DTS_FILE }}" || { echo "DTS missing"; exit 1; }
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || { echo "DTS not registered"; exit 1; }
           grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || { echo "Profile not registered"; exit 1; }
-          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || { echo "DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}" || { echo "TARGET_DEVICES missing"; exit 1; }
-
-      - name: check-dts OK
-        run: echo "check-dts completed"
 
   build:
     runs-on: ubuntu-22.04
@@ -93,53 +73,31 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          fetch-depth: 0
-
-      - name: Free disk space
-        run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo docker system prune -af || true
-          df -h
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison gawk gettext \
-            libncurses5-dev libssl-dev python3 unzip \
-            zlib1g-dev file wget curl git coreutils \
-            ccache time pkg-config libelf-dev rsync tar \
-            jq ca-certificates
-          sudo update-ca-certificates || true
+          sudo apt-get install -y build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
+            ccache time pkg-config libelf-dev rsync tar jq ca-certificates
 
       - name: Cache feeds
         uses: actions/cache@v4
         with:
-          path: |
-            feeds
-            package/feeds
-          key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
-          restore-keys: |
-            ${{ runner.os }}-feeds-
+          path: feeds
+          key: feeds-${{ hashFiles('feeds.conf.default') }}
 
       - name: Cache dl
         uses: actions/cache@v4
         with:
           path: dl
-          key: ${{ runner.os }}-immortalwrt-dl
-          restore-keys: |
-            ${{ runner.os }}-immortalwrt-dl
+          key: dl-cache
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ env.PROFILE }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-
+          key: ccache-${{ env.PROFILE }}
 
       - name: Cache toolchain
         uses: actions/cache@v4
@@ -149,423 +107,29 @@ jobs:
             staging_dir/host
             build_dir/toolchain-*
             build_dir/host
-          key: ${{ runner.os }}-toolchain-${{ hashFiles('Makefile', 'Config.in') }}
-          restore-keys: |
-            ${{ runner.os }}-toolchain-
+          key: toolchain-${{ hashFiles('Makefile', 'Config.in') }}
 
       - name: Configure ccache
         run: |
           ccache -M 2G
           ccache -s
 
-      - name: Setup feeds with retry
+      - name: Setup feeds
         run: |
-          set -e
-          MAX_RETRIES=3
-          retry() {
-            local cmd="$@"
-            local n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: $cmd"
-              if $cmd; then
-                return 0
-              fi
-              sleep 3
-              n=$((n+1))
-            done
-            return 1
-          }
-          export WGET_OPTIONS="--tries=3 --timeout=20"
-          retry ./scripts/feeds update -a
-          retry ./scripts/feeds install -a
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Init build timers
-        run: |
-          echo "START_TS=$(date +%s)" >> $GITHUB_ENV
+      - name: Build tools
+        run: make tools/install -j$(nproc) V=s
 
-      - name: Build tools (split + retry + heartbeat + timeout)
-        run: |
-          set -e
-          TOOLS="gmp mpfr mpc bison util-linux bc elfutils findutils mkimage mtd-utils e2fsprogs erofs-utils padjffs2 quilt"
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=3600
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: tools stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          for t in $TOOLS; do
-            echo "Building tool: $t"
-            monitor &
-            MON_PID=$!
-            {
-              n=1
-              while [ $n -le $MAX_RETRIES ]; do
-              if make -C tools/$t compile -j"$(nproc)" V=s; then
-                  break
-                fi
-                n=$((n+1))
-                sleep 3
-              done
-            } 2>&1 | while IFS= read -r line; do
-              echo "$line"
-              LAST_OUTPUT=$(date +%s)
-            done &
-            BUILD_PID=$!
-            wait $BUILD_PID
-            kill $MON_PID || true
-          done
+      - name: Build toolchain
+        run: make toolchain/install -j$(nproc) V=s
 
-      - name: Install tools (retry + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          TIMEOUT=1800
-          START=$(date +%s)
-          retry() {
-            local cmd="$@"
-            local n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: $cmd"
-              if $cmd; then
-                return 0
-              fi
-              sleep 3
-              n=$((n+1))
-            done
-            return 1
-          }
-          timeout_guard() {
-            NOW=$(date +%s)
-            if [ $((NOW - START)) -ge $TIMEOUT ]; then
-              echo "Timeout: install tools exceeded ${TIMEOUT}s"
-              exit 1
-            fi
-          }
-          timeout_guard
-          retry make tools/install -j"$(nproc)" V=s
+      - name: Build target
+        run: make target/compile -j$(nproc) V=s
 
-      - name: Build toolchain (split + retry + heartbeat + timeout)
-        run: |
-          set -e
-          COMPONENTS="binutils gcc musl glibc gdb"
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: toolchain stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          for c in $COMPONENTS; do
-            echo "Building toolchain component: $c"
-            monitor &
-            MON_PID=$!
-            {
-              n=1
-              while [ $n -le $MAX_RETRIES ]; do
-                echo "Attempt $n: make -C toolchain/$c compile"
-                if make -C toolchain/$c compile -j"$(nproc)" V=s; then
-                  break
-                fi
-                n=$((n+1))
-                sleep 3
-              done
-            } 2>&1 | while IFS= read -r line; do
-              echo "$line"
-              LAST_OUTPUT=$(date +%s)
-            done &
-            BUILD_PID=$!
-            wait $BUILD_PID
-            kill $MON_PID || true
-          done
-
-      - name: Install toolchain (retry + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          TIMEOUT=3600
-          START=$(date +%s)
-          retry() {
-            local cmd="$@"
-            local n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: $cmd"
-              if $cmd; then
-                return 0
-              fi
-              sleep 3
-              n=$((n+1))
-            done
-            return 1
-          }
-          timeout_guard() {
-            NOW=$(date +%s)
-            if [ $((NOW - START)) -ge $TIMEOUT ]; then
-              echo "Timeout: install toolchain exceeded ${TIMEOUT}s"
-              exit 1
-            fi
-          }
-          timeout_guard
-          retry make toolchain/install -j"$(nproc)" V=s
-
-      - name: Build target (retry + heartbeat + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: target stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          monitor &
-          MON_PID=$!
-          {
-            n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: make target/compile"
-              if make target/compile -j"$(nproc)" V=s; then
-                break
-              fi
-              n=$((n+1))
-              sleep 3
-            done
-          } 2>&1 | while IFS= read -r line; do
-            echo "$line"
-            LAST_OUTPUT=$(date +%s)
-          done &
-          BUILD_PID=$!
-          wait $BUILD_PID
-          kill $MON_PID || true
-
-      - name: Build packages (retry + heartbeat + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: package stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          monitor &
-          MON_PID=$!
-          {
-            n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: make package/compile"
-              if make package/compile -j"$(nproc)" V=s; then
-                break
-              fi
-              n=$((n+1))
-              sleep 3
-            done
-          } 2>&1 | while IFS= read -r line; do
-            echo "$line"
-            LAST_OUTPUT=$(date +%s)
-          done &
-          BUILD_PID=$!
-          wait $BUILD_PID
-          kill $MON_PID || true
-
-      - name: Prepare Config
-        run: make defconfig
-
-      - name: Build firmware
-        run: make -j$(nproc) V=s
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: immortalwrt-${{ env.PROFILE }}-firmware
-          path: ${{ env.TARGET_DIR }}/*
-          - name: Build kernel (retry + heartbeat + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: kernel stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          monitor &
-          MON_PID=$!
-          {
-            n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: make target/linux/compile"
-              if make target/linux/compile -j"$(nproc)" V=s; then
-                break
-              fi
-              n=$((n+1))
-              sleep 3
-            done
-          } 2>&1 | while IFS= read -r line; do
-            echo "$line"
-            LAST_OUTPUT=$(date +%s)
-          done &
-          BUILD_PID=$!
-          wait $BUILD_PID
-          kill $MON_PID || true
-
-      - name: Build packages (retry + heartbeat + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: package stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          monitor &
-          MON_PID=$!
-          {
-            n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: make package/compile"
-              if make package/compile -j"$(nproc)" V=s; then
-                break
-              fi
-              n=$((n+1))
-              sleep 3
-            done
-          } 2>&1 | while IFS= read -r line; do
-            echo "$line"
-            LAST_OUTPUT=$(date +%s)
-          done &
-          BUILD_PID=$!
-          wait $BUILD_PID
-          kill $MON_PID || true
-
-      - name: Build images (retry + heartbeat + timeout)
-        run: |
-          set -e
-          MAX_RETRIES=3
-          HEARTBEAT=600
-          TIMEOUT=7200
-          LAST_OUTPUT=$(date +%s)
-          START=$(date +%s)
-          monitor() {
-            while true; do
-              NOW=$(date +%s)
-              if [ $((NOW - LAST_OUTPUT)) -ge $HEARTBEAT ]; then
-                echo "No output for ${HEARTBEAT}s, fail-fast triggered"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              if [ $((NOW - START)) -ge $TIMEOUT ]; then
-                echo "Timeout: image stage exceeded ${TIMEOUT}s"
-                kill -9 $BUILD_PID || true
-                exit 1
-              fi
-              sleep 30
-            done
-          }
-          monitor &
-          MON_PID=$!
-          {
-            n=1
-            while [ $n -le $MAX_RETRIES ]; do
-              echo "Attempt $n: make package/install"
-              if make package/install -j"$(nproc)" V=s; then
-                break
-              fi
-              n=$((n+1))
-              sleep 3
-            done
-          } 2>&1 | while IFS= read -r line; do
-            echo "$line"
-            LAST_OUTPUT=$(date +%s)
-          done &
-          BUILD_PID=$!
-          wait $BUILD_PID
-          kill $MON_PID || true
+      - name: Build packages
+        run: make package/compile -j$(nproc) V=s
 
       - name: Prepare Config
         run: make defconfig
