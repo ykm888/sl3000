@@ -84,6 +84,7 @@ jobs:
         run: |
           rm -rf build_dir staging_dir tmp dl
           make clean
+          # 保留根目录下的 .config，不要删除
 
       - name: Cache feeds
         uses: actions/cache@v4
