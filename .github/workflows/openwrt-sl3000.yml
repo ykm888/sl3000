@@ -31,7 +31,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dtc
-        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
+        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler wget
+
+      - name: Auto fetch dt-bindings
+        run: |
+          mkdir -p include/dt-bindings/interrupt-controller
+          mkdir -p include/dt-bindings/gpio
+          wget -q https://raw.githubusercontent.com/torvalds/linux/master/include/dt-bindings/interrupt-controller/arm-gic.h -O include/dt-bindings/interrupt-controller/arm-gic.h
+          wget -q https://raw.githubusercontent.com/torvalds/linux/master/include/dt-bindings/gpio/gpio.h -O include/dt-bindings/gpio/gpio.h
 
       - name: Clean DTS file
         run: |
