@@ -3,7 +3,7 @@
 /dts-v1/;
 
 / {
-    compatible = "sl,3000-emmc", "mediatek,mt7981";
+    compatible = "sl,3000-emmc", "mediatek,mt7981b-sl3000-emmc", "mediatek,mt7981";
     model = "SL-3000 eMMC Board";
     #address-cells = <2>;
     #size-cells = <2>;
@@ -59,7 +59,7 @@
         uart0: serial@11002000 {
             compatible = "mediatek,mt6577-uart";
             reg = <0x0 0x11002000 0x0 0x400>;
-            interrupts = <0 123 4>; /* GIC_SPI=0, IRQ_TYPE_LEVEL_HIGH=4 */
+            interrupts = <0 123 4>;
             status = "okay";
         };
 
@@ -143,7 +143,7 @@
             compatible = "gpio-leds";
             led-0 {
                 label = "red:status";
-                gpios = <&pio 10 1>; /* GPIO_ACTIVE_HIGH=1 */
+                gpios = <&pio 10 1>;
             };
             led-1 {
                 label = "green:status";
@@ -159,8 +159,8 @@
             compatible = "gpio-keys";
             reset {
                 label = "reset";
-                gpios = <&pio 1 0>; /* GPIO_ACTIVE_LOW=0 */
-                linux,code = <0x198>; /* KEY_RESTART */
+                gpios = <&pio 1 0>;
+                linux,code = <0x198>;
             };
         };
     };
