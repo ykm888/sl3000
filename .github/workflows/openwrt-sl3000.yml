@@ -287,7 +287,6 @@ jobs:
           export WGET_OPTIONS="--tries=3 --timeout=20"
 
           KERNEL_START=$(date +%s)
-          # 这里不单独拆 kernel/image，直接 world，但时间统计仍然记录
           if timeout 30m make -j"$(nproc)"; then
             echo "parallel build ok"
           else
@@ -308,18 +307,14 @@ jobs:
         run: |
           END_TS=$(date +%s)
           TOTAL=$((END_TS-START_TS))
-          TOOLS=${TOOLS_TIME:-0}
-          KERNEL=${KERNEL_TIME:-0}
-
           mkdir -p logs
           {
             echo "Build summary:"
-            echo "  Tools+Toolchain: ${TOOLS}s"
-            echo "  Kernel+Image:    ${KERNEL}s"
+            echo "  Tools+Toolchain: ${TOOLS_TIME}s"
+            echo "  Kernel+Image:    ${KERNEL_TIME}s"
             echo "  Total:           ${TOTAL}s"
             echo ""
             echo "Target:   ${{ env.PROFILE }}"
-            echo "Kernel:   $(grep -m1 'LINUX_VERSION-' include/kernel-version.mk || true)"
             echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')"
           } | tee logs/build-summary.txt
 
@@ -373,30 +368,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 失败时自动上传构建日志 + 简单失败分析
       - name: Collect failure logs
         if: failure()
         run: |
           mkdir -p logs
           echo "Build failed, collecting logs..." | tee logs/failure.txt
-          # 简单失败原因分析（模式匹配）
-          if grep -q "Patch failed" -R . || grep -q ".rej" -R build_dir 2>/dev/null; then
-            echo "Reason: patch conflict detected" | tee -a logs/failure.txt
-          elif grep -q "No rule to make target" build.log 2>/dev/null; then
-            echo "Reason: missing make target" | tee -a logs/failure.txt
-          elif grep -q "Error 1" -R build_dir/target-*/linux-* 2>/dev/null; then
-            echo "Reason: kernel/image build error" | tee -a logs/failure.txt
-          else
-            echo "Reason: unknown, please inspect full logs" | tee -a logs/failure.txt
-          fi
 
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-failure-logs
-          path: |
-            logs/**
-            build_dir/**/log*.txt
-            build_dir/**/build.log
+          path: logs
           if-no-files-found: ignore
