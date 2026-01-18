@@ -402,7 +402,6 @@ jobs:
           BUILD_PID=$!
           wait $BUILD_PID
           kill $MON_PID || true
-        done
 
       - name: Install tools (retry + timeout)
         run: |
@@ -508,4 +507,5 @@ jobs:
             fi
           }
           timeout_guard
+
           retry make toolchain/install -j"$(nproc)" V=s
