@@ -34,7 +34,7 @@ jobs:
           cd target/linux/mediatek/patches-6.12
           for p in *.patch; do
             case "$p" in
-              *7981*|*sl3000*|*filogic* )
+              *7981*|*sl3000*|*mt7981* )
                 echo "Keep: $p"
                 ;;
               * )
@@ -53,7 +53,7 @@ jobs:
         run: |
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
           sed -i 's/\r$//' "${{ env.DTS_FILE }}"
-          tr -d '\000-\011\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
+          tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       - name: Check DTS exists and syntax
@@ -66,19 +66,24 @@ jobs:
 
       - name: Auto register DTS in Makefile
         run: |
-          if ! grep -q "${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
+          if ! grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
             echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           fi
 
       - name: Auto register profile in filogic.mk
         run: |
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "" >> "${{ env.MK_FILE }}"
-            echo "define Device/${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
-            echo "  DEVICE_DTS := ${{ env.DTS_NAME }}" >> "${{ env.MK_FILE }}"
-            echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs" >> "${{ env.MK_FILE }}"
-            echo "endef" >> "${{ env.MK_FILE }}"
-            echo "" >> "${{ env.MK_FILE }}"
+            {
+              echo ""
+              echo "define Device/${{ env.PROFILE }}"
+              echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
+              echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs"
+              echo "endef"
+              echo ""
+            } >> "${{ env.MK_FILE }}"
+          fi
+
+          if ! grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
           fi
 
@@ -87,6 +92,9 @@ jobs:
           echo "CONFIG_TARGET_mediatek=y" > .config
           echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
           echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+          echo "CONFIG_TARGET_MULTI_PROFILE=n" >> .config
+          echo "CONFIG_ALL_KMODS=n" >> .config
+          echo "CONFIG_ALL_NONSHARED=n" >> .config
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
@@ -99,7 +107,7 @@ jobs:
 
           echo "Checking DTS <-> mk <-> profile consistency..."
           test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS missing"; exit 1; }
-          grep -q "${DTS}.dtb" "${DTS_MK}" || { echo "❌ DTS not registered in DTS Makefile"; exit 1; }
+          grep -q "dtb-y += ${DTS}.dtb" "${DTS_MK}" || { echo "❌ DTS not registered in DTS Makefile"; exit 1; }
           grep -q "define Device/${PROFILE}" "${MK}" || { echo "❌ Profile not registered in mk"; exit 1; }
           grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "❌ mk DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "❌ TARGET_DEVICES missing profile"; exit 1; }
@@ -107,7 +115,7 @@ jobs:
 
       - name: Clean filogic.mk
         run: |
-          sed -i '/TARGET_DEVICES +=/d' "${{ env.MK_FILE }}"
+          sed -i "s/^TARGET_DEVICES +=/# &/" "${{ env.MK_FILE }}"
           echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
 
       - name: Fail-fast: forbid building mt7981-rfb
@@ -127,7 +135,7 @@ jobs:
           echo "Running kernel patch pre-check..."
           make target/linux/clean
           IGNORE_ERRORS=1 make target/linux/prepare V=s || true
-          if find build_dir -name "*.rej" -type f | head -5; then
+          if find build_dir -name "*.rej" -type f | grep -q .; then
             echo "❌ Patch conflict detected (fail-fast)"
             exit 1
           fi
@@ -158,7 +166,7 @@ jobs:
           cd target/linux/mediatek/patches-6.12
           for p in *.patch; do
             case "$p" in
-              *7981*|*sl3000*|*filogic* )
+              *7981*|*sl3000*|*mt7981* )
                 echo "Keep: $p"
                 ;;
               * )
@@ -300,12 +308,6 @@ jobs:
           echo "Checking firmware output..."
           if [ -d "${{ env.TARGET_DIR }}" ]; then
             ls -lh "${{ env.TARGET_DIR }}"
-            
-            if compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null; then
-              echo "✅ Found sysupgrade.bin"
-            else
-              echo "⚠️ No sysupgrade.bin found"
-            fi
             
             cd "${{ env.TARGET_DIR }}"
             rm -f sha256sums.txt
