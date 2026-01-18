@@ -236,7 +236,6 @@ jobs:
           set -e
           MAX_RETRIES=3
           
-          # 定义重试函数
           retry_command() {
             local cmd="$@"
             local attempt=1
@@ -283,7 +282,6 @@ jobs:
           KERNEL_START=$(date +%s)
           echo "Building firmware..."
           
-          # 先尝试并行构建
           if make -j$(nproc) V=s; then
             echo "Parallel build succeeded"
           else
@@ -303,14 +301,12 @@ jobs:
           if [ -d "${{ env.TARGET_DIR }}" ]; then
             ls -lh "${{ env.TARGET_DIR }}"
             
-            # 检查必要的文件
             if compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null; then
               echo "✅ Found sysupgrade.bin"
             else
               echo "⚠️ No sysupgrade.bin found"
             fi
             
-            # 生成SHA256校验和
             cd "${{ env.TARGET_DIR }}"
             rm -f sha256sums.txt
             find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt
@@ -328,20 +324,14 @@ jobs:
           KERNEL_TIME=${KERNEL_TIME:-0}
           
           mkdir -p logs
-          cat > logs/build-summary.txt << 'SUMMARY_EOF'
-Build summary:
-  Tools+Toolchain: ${TOOLS_TIME}s
-  Kernel+Image:    ${KERNEL_TIME}s
-  Total:           ${TOTAL}s
-
-Target:   ${{ env.PROFILE }}
-Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')
-SUMMARY_EOF
           
-          # 替换变量
-          sed -i "s/\${TOOLS_TIME}/${TOOLS_TIME}/g" logs/build-summary.txt
-          sed -i "s/\${KERNEL_TIME}/${KERNEL_TIME}/g" logs/build-summary.txt
-          sed -i "s/\${TOTAL}/${TOTAL}/g" logs/build-summary.txt
+          echo "Build summary:" > logs/build-summary.txt
+          echo "  Tools+Toolchain: ${TOOLS_TIME}s" >> logs/build-summary.txt
+          echo "  Kernel+Image:    ${KERNEL_TIME}s" >> logs/build-summary.txt
+          echo "  Total:           ${TOTAL}s" >> logs/build-summary.txt
+          echo "" >> logs/build-summary.txt
+          echo "Target:   ${{ env.PROFILE }}" >> logs/build-summary.txt
+          echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')" >> logs/build-summary.txt
           
           cat logs/build-summary.txt
 
