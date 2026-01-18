@@ -50,7 +50,7 @@ jobs:
       - name: Check DTS exists and syntax
         run: |
           test -f "${{ env.DTS_FILE }}" || { echo "DTS not found"; exit 1; }
-          dtc -I dts -O dtb -i include "${{ env.DTS_FILE }}" -o /tmp/test.dtb
+          dtc -I dts -I include -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
       - name: Auto register DTS/profile
         run: |
