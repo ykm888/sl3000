@@ -1,13 +1,19 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
 /dts-v1/;
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 
 / {
     compatible = "sl,3000-emmc", "mediatek,mt7981";
-    model = "SL-3000 eMMC bootstrap version";
+    model = "SL-3000 eMMC Board";
     #address-cells = <2>;
     #size-cells = <2>;
     interrupt-parent = <&gic>;
 
-    memory {
+    memory@40000000 {
         device_type = "memory";
         reg = <0x0 0x40000000 0x0 0x40000000>; /* 1GB RAM */
     };
@@ -33,110 +39,133 @@
         };
     };
 
-    serial@11002000 {
-        compatible = "mediatek,mt6577-uart";
-        reg = <0x0 0x11002000 0x0 0x400>;
-        interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
-        status = "okay";
-    };
+    soc: soc@0 {
+        compatible = "simple-bus";
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
 
-    mmc@11230000 {
-        compatible = "mediatek,mt7981-mmc";
-        reg = <0x0 0x11230000 0x0 0x1000>;
-        interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
-        bus-width = <8>;
-        non-removable;
-        cap-mmc-highspeed;
-        max-frequency = <50000000>;
-        pinctrl-names = "default";
-        status = "okay";
-
-        partitions {
-            compatible = "fixed-partitions";
-            #address-cells = <1>;
-            #size-cells = <1>;
-
-            partition@0 {
-                label = "kernel";
-                reg = <0x00000000 0x02000000>; /* 32MB */
-            };
-
-            partition@2000000 {
-                label = "rootfs";
-                reg = <0x02000000 0x20000000>; /* 512MB */
-            };
-
-            partition@22000000 {
-                label = "rootfs_data";
-                reg = <0x22000000 0x100000000>; /* 4GB */
-            };
-
-            partition@122000000 {
-                label = "docker";
-                reg = <0x122000000 0xEE0000000>; /* 60GB */
-            };
-
-            partition@522000000 {
-                label = "swap";
-                reg = <0x522000000 0x80000000>; /* 2GB */
-            };
-
-            partition@5A2000000 {
-                label = "data";
-                reg = <0x5A2000000 0x0>; /* 剩余空间 (~61GB) */
-            };
-        };
-    };
-
-    ethernet@15100000 {
-        compatible = "mediatek,mt7981-eth";
-        reg = <0x0 0x15100000 0x0 0x80000>;
-        interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
-        status = "okay";
-
-        mac@0 {
-            compatible = "mediatek,eth-mac";
-            reg = <0>;
-            phy-mode = "2500base-x";
-            fixed-link {
-                speed = <2500>;
-                full-duplex;
-            };
+        gic: interrupt-controller@c000000 {
+            compatible = "arm,gic-v3";
+            reg = <0x0 0x0c000000 0x0 0x200000>,
+                  <0x0 0x0c080000 0x0 0x200000>;
+            #interrupt-cells = <3>;
+            interrupt-controller;
         };
 
-        mac@1 {
-            compatible = "mediatek,eth-mac";
-            reg = <1>;
-            phy-mode = "2500base-x";
-            fixed-link {
-                speed = <2500>;
-                full-duplex;
+        pio: pinctrl@1000f000 {
+            compatible = "mediatek,mt7981-pinctrl";
+            reg = <0x0 0x1000f000 0x0 0x1000>;
+            #gpio-cells = <2>;
+            gpio-controller;
+        };
+
+        uart0: serial@11002000 {
+            compatible = "mediatek,mt6577-uart";
+            reg = <0x0 0x11002000 0x0 0x400>;
+            interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+            status = "okay";
+        };
+
+        mmc0: mmc@11230000 {
+            compatible = "mediatek,mt7981-mmc";
+            reg = <0x0 0x11230000 0x0 0x1000>;
+            interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+            bus-width = <8>;
+            non-removable;
+            cap-mmc-highspeed;
+            max-frequency = <50000000>;
+            status = "okay";
+
+            partitions {
+                compatible = "fixed-partitions";
+                #address-cells = <1>;
+                #size-cells = <1>;
+
+                partition@0 {
+                    label = "kernel";
+                    reg = <0x00000000 0x02000000>; /* 32MB */
+                };
+
+                partition@2000000 {
+                    label = "rootfs";
+                    reg = <0x02000000 0x20000000>; /* 512MB */
+                };
+
+                partition@22000000 {
+                    label = "rootfs_data";
+                    reg = <0x22000000 0x100000000>; /* 4GB */
+                };
+
+                partition@122000000 {
+                    label = "docker";
+                    reg = <0x122000000 0xEE0000000>; /* 60GB */
+                };
+
+                partition@522000000 {
+                    label = "swap";
+                    reg = <0x522000000 0x80000000>; /* 2GB */
+                };
+
+                partition@5A2000000 {
+                    label = "data";
+                    reg = <0x5A2000000 0x0>; /* 剩余空间 (~61GB) */
+                };
             };
         };
-    };
 
-    leds {
-        compatible = "gpio-leds";
-        led-0 {
-            label = "red:status";
-            gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
-        };
-        led-1 {
-            label = "green:status";
-            gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
-        };
-        led-2 {
-            label = "blue:status";
-            gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
-        };
-    };
+        eth: ethernet@15100000 {
+            compatible = "mediatek,mt7981-eth";
+            reg = <0x0 0x15100000 0x0 0x80000>;
+            interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+            status = "okay";
 
-    gpio-keys {
-        compatible = "gpio-keys";
-        reset {
-            label = "reset";
-            gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-            linux,code = <KEY_RESTART>;
+            mac@0 {
+                compatible = "mediatek,eth-mac";
+                reg = <0>;
+                phy-mode = "2500base-x";
+                fixed-link {
+                    speed = <2500>;
+                    full-duplex;
+                    pause;
+                };
+            };
+
+            mac@1 {
+                compatible = "mediatek,eth-mac";
+                reg = <1>;
+                phy-mode = "2500base-x";
+                fixed-link {
+                    speed = <2500>;
+                    full-duplex;
+                    pause;
+                };
+            };
+        };
+
+        leds {
+            compatible = "gpio-leds";
+            led-0 {
+                label = "red:status";
+                gpios = <&pio 10 GPIO_ACTIVE_HIGH>;
+            };
+            led-1 {
+                label = "green:status";
+                gpios = <&pio 11 GPIO_ACTIVE_HIGH>;
+            };
+            led-2 {
+                label = "blue:status";
+                gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
+            };
+        };
+
+        gpio-keys {
+            compatible = "gpio-keys";
+            reset {
+                label = "reset";
+                gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+                linux,code = <KEY_RESTART>;
+            };
         };
     };
 };
