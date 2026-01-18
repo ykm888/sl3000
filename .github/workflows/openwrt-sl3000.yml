@@ -210,7 +210,8 @@ jobs:
           key: ${{ runner.os }}-toolchain-${{ hashFiles('Makefile', 'Config.in') }}
           restore-keys: |
             ${{ runner.os }}-toolchain-
-            - name: Configure ccache
+
+      - name: Configure ccache
         run: |
           ccache -M 2G
           ccache -s
@@ -242,11 +243,7 @@ jobs:
         run: |
           echo "START_TS=$(date +%s)" >> $GITHUB_ENV
 
-      #####################################################################
-      #  工具链分阶段构建 + 自动重试 + 心跳检测 + 超时保护
-      #####################################################################
-
-      - name: Build tools (split with retry + heartbeat + timeout)
+      - name: Build tools (split + retry + heartbeat + timeout)
         run: |
           set -e
 
@@ -394,10 +391,6 @@ jobs:
             kill $MON_PID || true
           done
 
-      #####################################################################
-      #  固件构建：自动重试 + 心跳检测 + 超时保护
-      #####################################################################
-
       - name: Build firmware (retry + heartbeat + timeout)
         run: |
           set -e
@@ -451,8 +444,6 @@ jobs:
 
           wait $BUILD_PID
           kill $MON_PID || true
-
-      #####################################################################
 
       - name: Verify firmware output
         run: |
