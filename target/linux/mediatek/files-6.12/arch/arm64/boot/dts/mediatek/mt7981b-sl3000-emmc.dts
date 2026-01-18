@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
 /dts-v1/;
 
-/include/ "dt-bindings/interrupt-controller/arm-gic.h"
-/include/ "dt-bindings/gpio/gpio.h"
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 
 / {
     compatible = "sl,3000-emmc", "mediatek,mt7981";
@@ -57,14 +60,14 @@
             gpio-controller;
         };
 
-        serial@11002000 {
+        uart0: serial@11002000 {
             compatible = "mediatek,mt6577-uart";
             reg = <0x0 0x11002000 0x0 0x400>;
             interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
             status = "okay";
         };
 
-        mmc@11230000 {
+        mmc0: mmc@11230000 {
             compatible = "mediatek,mt7981-mmc";
             reg = <0x0 0x11230000 0x0 0x1000>;
             interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
@@ -72,7 +75,6 @@
             non-removable;
             cap-mmc-highspeed;
             max-frequency = <50000000>;
-            pinctrl-names = "default";
             status = "okay";
 
             partitions {
@@ -112,7 +114,7 @@
             };
         };
 
-        ethernet@15100000 {
+        eth: ethernet@15100000 {
             compatible = "mediatek,mt7981-eth";
             reg = <0x0 0x15100000 0x0 0x80000>;
             interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
