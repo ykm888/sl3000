@@ -107,6 +107,7 @@ jobs:
 
           echo "Checking DTS <-> mk <-> profile consistency..."
           test -f "${{ env.DTS_FILE }}" || { echo "DTS missing"; exit 1; }
+          grep -q "dtb-y += ${DTS}.dtb" "${DTS_MK}" || { echo "DTS not registered in DTS Makefile"; exit 1; }
           grep -q "define Device/${PROFILE}" "${MK}" || { echo "Profile not registered in mk"; exit 1; }
           grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "mk DEVICE_DTS mismatch"; exit 1; }
           grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "TARGET_DEVICES missing profile"; exit 1; }
@@ -137,7 +138,6 @@ jobs:
           if find build_dir -name "*.rej" -type f | grep -q .; then
             echo "Patch conflict detected (fail-fast)"
             exit 1
-          fi
           fi
           echo "Kernel patch pre-check OK"
 
@@ -243,12 +243,12 @@ jobs:
         run: |
           set -e
           MAX_RETRIES=3
-          
+
           retry_command() {
             local cmd="$@"
             local attempt=1
             local max_attempts=$MAX_RETRIES
-            
+
             while [ $attempt -le $max_attempts ]; do
               echo "Attempt $attempt of $max_attempts: $cmd"
               if $cmd; then
@@ -257,14 +257,14 @@ jobs:
               else
                 echo "Command failed, retrying in 3 seconds..."
                 sleep 3
-                ((attempt++))
+                attempt=$((attempt+1))
               fi
             done
-            
+
             echo "Command failed after $max_attempts attempts"
             return 1
           }
-          
+
           export WGET_OPTIONS="--tries=3 --timeout=20"
           retry_command ./scripts/feeds update -a
           retry_command ./scripts/feeds install -a
@@ -278,9 +278,9 @@ jobs:
           set -e
           TOOLS_START=$(date +%s)
           echo "Building tools..."
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
+          make tools/install -j"$(nproc)" || make tools/install -j1 V=s
           echo "Building toolchain..."
-          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+          make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
           TOOLS_END=$(date +%s)
           echo "TOOLS_TIME=$((TOOLS_END-TOOLS_START))" >> $GITHUB_ENV
 
@@ -289,8 +289,8 @@ jobs:
           set -e
           KERNEL_START=$(date +%s)
           echo "Building firmware..."
-          
-          if make -j$(nproc) V=s; then
+
+          if make -j"$(nproc)" V=s; then
             echo "Parallel build succeeded"
           else
             echo "Parallel build failed, trying single core..."
@@ -299,7 +299,7 @@ jobs:
               make -j1 V=s IGNORE_ERRORS=m || true
             }
           fi
-          
+
           KERNEL_END=$(date +%s)
           echo "KERNEL_TIME=$((KERNEL_END-KERNEL_START))" >> $GITHUB_ENV
 
@@ -308,7 +308,7 @@ jobs:
           echo "Checking firmware output..."
           if [ -d "${{ env.TARGET_DIR }}" ]; then
             ls -lh "${{ env.TARGET_DIR }}"
-            
+
             cd "${{ env.TARGET_DIR }}"
             rm -f sha256sums.txt
             find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt
@@ -324,17 +324,19 @@ jobs:
           TOTAL=$((END_TS - START_TS))
           TOOLS_TIME=${TOOLS_TIME:-0}
           KERNEL_TIME=${KERNEL_TIME:-0}
-          
+
           mkdir -p logs
-          
-          echo "Build summary:" > logs/build-summary.txt
-          echo "  Tools+Toolchain: ${TOOLS_TIME}s" >> logs/build-summary.txt
-          echo "  Kernel+Image:    ${KERNEL_TIME}s" >> logs/build-summary.txt
-          echo "  Total:           ${TOTAL}s" >> logs/build-summary.txt
-          echo "" >> logs/build-summary.txt
-          echo "Target:   ${{ env.PROFILE }}" >> logs/build-summary.txt
-          echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')" >> logs/build-summary.txt
-          
+
+          {
+            echo "Build summary:"
+            echo "  Tools+Toolchain: ${TOOLS_TIME}s"
+            echo "  Kernel+Image:    ${KERNEL_TIME}s"
+            echo "  Total:           ${TOTAL}s"
+            echo ""
+            echo "Target:   ${{ env.PROFILE }}"
+            echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')"
+          } > logs/build-summary.txt
+
           cat logs/build-summary.txt
 
       - name: Upload firmware artifacts
@@ -381,5 +383,4 @@ jobs:
             logs/
             build.log
             build_dir/**/log*
-
           if-no-files-found: ignore
