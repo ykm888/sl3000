@@ -20,6 +20,9 @@ define Device/mt7981-default
     kmod-usb3 kmod-usb2 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk
   IMAGE_SIZE := 256m
+  KERNEL := kernel-bin
+  KERNEL_INITRAMFS := kernel-bin
+  ROOTFS := squashfs
   IMAGES := sysupgrade.bin
   IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
@@ -60,6 +63,9 @@ define Device/sl3000-emmc
     dockerd docker docker-compose luci-app-dockerman
 
   IMAGE_SIZE := 256m
+  KERNEL := kernel-bin
+  KERNEL_INITRAMFS := kernel-bin
+  ROOTFS := squashfs
   IMAGES := sysupgrade.bin
   IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
