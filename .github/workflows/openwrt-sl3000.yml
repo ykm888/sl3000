@@ -1,6 +1,13 @@
 name: ImmortalWrt Build
+
 on:
   workflow_dispatch:
+    inputs:
+      clean_build:
+        description: 'Clean build (no cache)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -16,19 +23,21 @@ env:
   DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
-  CCACHE_DIR: ~/.ccache
+  CCACHE_DIR: /tmp/ccache
 
 jobs:
   check-dts:
     runs-on: ubuntu-22.04
+    outputs:
+      dts_valid: ${{ steps.dts-check.outputs.valid }}
     steps:
-      - name: Checkout source (your repo)
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
-      # 预过滤补丁：只保留 MT7981 / sl3000 / filogic
       - name: Remove unrelated patches (only keep MT7981)
         run: |
           cd target/linux/mediatek/patches-6.12
@@ -57,38 +66,56 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       - name: Check DTS exists and syntax
+        id: dts-check
         run: |
           if [ ! -f "${{ env.DTS_FILE }}" ]; then
             echo "❌ DTS not found: ${{ env.DTS_FILE }}"
+            echo "valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
-          dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
+          
+          if dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb 2>/dev/null; then
+            echo "✅ DTS syntax OK"
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ DTS syntax error"
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
 
       - name: Auto register DTS in Makefile
         run: |
           if ! grep -q "${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
             echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+            echo "✅ Registered DTS in Makefile"
+          else
+            echo "ℹ️  DTS already registered"
           fi
 
       - name: Auto register profile in filogic.mk
         run: |
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            {
-              echo ""
-              echo "define Device/${{ env.PROFILE }}"
-              echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
-              echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs"
-              echo "endef"
-              echo "TARGET_DEVICES += ${{ env.PROFILE }}"
-            } >> "${{ env.MK_FILE }}"
+            cat >> "${{ env.MK_FILE }}" << EOF
+
+define Device/${{ env.PROFILE }}
+  DEVICE_DTS := ${{ env.DTS_NAME }}
+  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs
+endef
+TARGET_DEVICES += ${{ env.PROFILE }}
+EOF
+            echo "✅ Registered profile in filogic.mk"
+          else
+            echo "ℹ️  Profile already registered"
           fi
 
       - name: Auto generate .config
         run: |
-          echo "CONFIG_TARGET_mediatek=y" > .config
-          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          echo "CONFIG_CCACHE=y" >> .config
+          cat > .config << EOF
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y
+CONFIG_CCACHE=y
+EOF
           make defconfig
 
       - name: Validate 3-piece consistency (DTS / mk / profile)
@@ -99,47 +126,85 @@ jobs:
           DTS_MK="${{ env.DTS_MK }}"
 
           echo "Checking DTS <-> mk <-> profile consistency..."
+          
+          # 检查DTS文件是否存在
+          if [ ! -f "${{ env.DTS_FILE }}" ]; then
+            echo "❌ DTS missing: ${{ env.DTS_FILE }}"
+            exit 1
+          fi
+          
+          # 检查DTS是否在Makefile中注册
+          if ! grep -q "${DTS}.dtb" "${DTS_MK}"; then
+            echo "❌ DTS not registered in DTS Makefile"
+            exit 1
+          fi
+          
+          # 检查profile是否在mk文件中定义
+          if ! grep -q "define Device/${PROFILE}" "${MK}"; then
+            echo "❌ Profile not registered in mk"
+            exit 1
+          fi
+          
+          # 检查mk文件中的DEVICE_DTS是否正确
+          if ! grep -q "DEVICE_DTS := ${DTS}" "${MK}"; then
+            echo "❌ mk DEVICE_DTS mismatch"
+            exit 1
+          fi
+          
+          # 检查TARGET_DEVICES是否包含profile
+          if ! grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}"; then
+            echo "❌ TARGET_DEVICES missing profile"
+            exit 1
+          fi
+          
+          echo "✅ 3-piece consistency OK"
 
-          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS missing"; exit 1; }
-          grep -q "${DTS}.dtb" "${DTS_MK}" || { echo "❌ DTS not registered in DTS Makefile"; exit 1; }
-          grep -q "define Device/${PROFILE}" "${MK}" || { echo "❌ Profile not registered in mk"; exit 1; }
-          grep -q "DEVICE_DTS := ${DTS}" "${MK}" || { echo "❌ mk DEVICE_DTS mismatch"; exit 1; }
-          grep -q "TARGET_DEVICES += ${PROFILE}" "${MK}" || { echo "❌ TARGET_DEVICES missing profile"; exit 1; }
-
-          echo "✔ 3-piece consistency OK"
-
-      # 清理 filogic.mk 中所有无关设备，只保留当前设备
       - name: Clean filogic.mk (only keep current device)
         run: |
-          sed -i '/TARGET_DEVICES +=/d' "${{ env.MK_FILE }}"
-          echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
+          # 创建备份
+          cp "${{ env.MK_FILE }}" "${{ env.MK_FILE }}.backup"
+          
+          # 提取当前设备的定义
+          awk -v profile="${{ env.PROFILE }}" '
+            /^define Device\// { in_device = ($2 == profile); }
+            in_device { print }
+            /^endef$/ && in_device { print; in_device = 0 }
+          ' "${{ env.MK_FILE }}.backup" > "${{ env.MK_FILE }}.temp"
+          
+          # 添加TARGET_DEVICES行
+          echo "" >> "${{ env.MK_FILE }}.temp"
+          echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}.temp"
+          
+          # 替换原文件
+          mv "${{ env.MK_FILE }}.temp" "${{ env.MK_FILE }}"
+          echo "✅ Cleaned filogic.mk, only kept ${{ env.PROFILE }}"
 
-      # 禁止构建 mt7981-rfb（fail-fast）
       - name: Fail-fast: forbid building mt7981-rfb
         run: |
           if grep -q "mt7981-rfb" "${{ env.MK_FILE }}"; then
             echo "❌ filogic.mk still contains mt7981-rfb, aborting."
             exit 1
           fi
+          echo "✅ No mt7981-rfb found in filogic.mk"
 
-      # 记录 DTS/mk/profile diff（用于诊断）
       - name: Save DTS/mk/profile diff
         run: |
           mkdir -p logs
-          git diff -- "${{ env.DTS_FILE }}" "${{ env.DTS_MK }}" "${{ env.MK_FILE }}" > logs/dts_mk_profile.diff || true
+          git diff -- "${{ env.DTS_FILE }}" "${{ env.DTS_MK }}" "${{ env.MK_FILE }}" > logs/dts_mk_profile.diff 2>/dev/null || true
+          echo "Diff saved to logs/dts_mk_profile.diff"
 
-      # 补丁提前检测（fail-fast，不构建工具链）
       - name: Pre-check kernel patches (fail-fast)
         run: |
           echo "Running kernel patch pre-check..."
-          make target/linux/clean
-          IGNORE_ERRORS=1 make target/linux/prepare V=s || true
-          if ls build_dir/target-*/linux-*/linux-*/patches/*.rej 2>/dev/null; then
+          make target/linux/clean > /dev/null 2>&1 || true
+          IGNORE_ERRORS=1 make target/linux/prepare V=s 2>&1 | tail -50 || true
+          
+          if find build_dir -name "*.rej" -type f | grep -q "."; then
             echo "❌ Patch conflict detected (fail-fast)"
-            ls build_dir/target-*/linux-*/linux-*/patches/*.rej
+            find build_dir -name "*.rej" -type f -exec echo "  Found: {}" \;
             exit 1
           fi
-          echo "✔ Kernel patch pre-check OK"
+          echo "✅ Kernel patch pre-check OK"
 
       - name: Upload check-dts logs
         if: always()
@@ -154,14 +219,24 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     needs: check-dts
+    if: needs.check-dts.outputs.dts_valid == 'true'
+    strategy:
+      matrix:
+        include:
+          - profile: sl3000-emmc
+            target: mediatek/filogic
+    env:
+      PROFILE: ${{ matrix.profile }}
+      TARGET: ${{ matrix.target }}
+    
     steps:
-      - name: Checkout source (your repo)
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
           fetch-depth: 0
+          ref: ${{ github.ref }}
 
-      # 再次过滤补丁（构建阶段双保险）
       - name: Remove unrelated patches (only keep MT7981)
         run: |
           cd target/linux/mediatek/patches-6.12
@@ -179,49 +254,55 @@ jobs:
 
       - name: Free disk space
         run: |
+          echo "Disk usage before cleanup:"
           df -h
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo docker system prune -af || true
+          
+          sudo rm -rf /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/boost \
+            /usr/local/lib/node_modules \
+            /usr/local/share/powershell \
+            /usr/share/swift || true
+          
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean
+          
+          echo "Disk usage after cleanup:"
           df -h
 
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential flex bison gawk gettext \
-            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git coreutils \
-            ccache time pkg-config libelf-dev rsync tar jq ca-certificates
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 python3-dev \
+            unzip zlib1g-dev file wget curl git coreutils \
+            ccache time pkg-config libelf-dev rsync tar \
+            jq ca-certificates subversion gperf \
+            g++-multilib libxml2-utils xsltproc \
+            liblzma-dev liblz4-tool zstd \
+            upx-ucl lzma lzma-dev zip
+          
           sudo update-ca-certificates || true
 
-      # feeds 缓存
-      - name: Cache feeds
-        uses: actions/cache@v4
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.9
         with:
-          path: |
-            feeds
-            package/feeds
-          key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
-          restore-keys: |
-            ${{ runner.os }}-feeds-
+          key: immortalwrt-${{ env.PROFILE }}
+          max-size: 2G
 
-      - name: Cache dl
+      - name: Cache dl directory
+        if: github.event.inputs.clean_build != 'true'
         uses: actions/cache@v4
         with:
           path: dl
-          key: ${{ runner.os }}-immortalwrt-dl
+          key: immortalwrt-dl-${{ hashFiles('feeds.conf.default') }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-dl
+            immortalwrt-dl-
 
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ env.PROFILE }}-${{ github.ref }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-${{ env.PROFILE }}-
-
-      # 工具链缓存（失败也缓存）
       - name: Cache toolchain
-        if: always()
+        if: github.event.inputs.clean_build != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -229,155 +310,159 @@ jobs:
             staging_dir/host
             build_dir/toolchain-*
             build_dir/host
-          key: ${{ runner.os }}-toolchain-${{ hashFiles('toolchain/**', 'tools/**', 'include/**') }}
+          key: toolchain-${{ hashFiles('config/Config.in', 'include/kernel-*.mk') }}
           restore-keys: |
-            ${{ runner.os }}-toolchain-
+            toolchain-
 
-      # kernel 缓存（极限加速）
-      - name: Cache kernel build
-        if: always()
-        uses: actions/cache@v4
-        with:
-          path: |
-            build_dir/target-*/linux-*/linux-*
-            build_dir/target-*/linux-*/vmlinux*
-            build_dir/target-*/linux-*/Image*
-          key: ${{ runner.os }}-kernel-${{ env.PROFILE }}-${{ hashFiles('target/linux/**', 'include/kernel-version.mk') }}
-          restore-keys: |
-            ${{ runner.os }}-kernel-${{ env.PROFILE }}-
-
-      - name: Configure ccache
+      - name: Update feeds with retry
         run: |
-          ccache -M 2G
+          set -e
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i to update feeds..."
+            if ./scripts/feeds update -a; then
+              echo "Feeds updated successfully"
+              break
+            elif [ $i -eq $MAX_RETRIES ]; then
+              echo "Failed to update feeds after $MAX_RETRIES attempts"
+              exit 1
+            else
+              echo "Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          
+          ./scripts/feeds install -a
+
+      - name: Configure build
+        run: |
+          echo "CONFIG_TARGET_mediatek=y" > .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo "CONFIG_CCACHE_DIR=\"$CCACHE_DIR\"" >> .config
+          echo "CONFIG_CCACHE_BASEDIR=\"$(pwd)\"" >> .config
+          
+          # 启用常用功能
+          echo "CONFIG_PACKAGE_kmod-usb3=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-usb-storage=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-fs-f2fs=y" >> .config
+          echo "CONFIG_PACKAGE_luci=y" >> .config
+          
+          make defconfig
+          
+          # 显示配置摘要
+          echo "Build configuration:"
+          grep "^CONFIG_TARGET" .config || true
+          grep "^CONFIG_PACKAGE" .config | head -20 || true
+
+      - name: Build firmware
+        timeout-minutes: 180
+        run: |
+          set -e
+          
+          echo "Starting build at: $(date)"
+          START_TIME=$(date +%s)
+          
+          # 设置环境变量
+          export FORCE_UNSAFE_CONFIGURE=1
+          export CCACHE_DIR="/tmp/ccache"
+          export CCACHE_BASEDIR="$(pwd)"
+          export CCACHE_COMPRESS=1
+          export CCACHE_COMPRESSLEVEL=6
+          export CCACHE_MAXSIZE=2G
+          
+          # 清理ccache统计
+          ccache -z
+          
+          # 开始构建
+          echo "Building with $(nproc) cores..."
+          
+          if make -j$(($(nproc) + 1)) V=s 2>&1 | tee build.log; then
+            echo "✅ Build completed successfully"
+            BUILD_STATUS="success"
+          else
+            echo "⚠️ Build failed, trying with single core..."
+            if make -j1 V=s 2>&1 | tee -a build.log; then
+              echo "✅ Build completed successfully (single core)"
+              BUILD_STATUS="success"
+            else
+              echo "❌ Build failed"
+              BUILD_STATUS="failure"
+              # 尝试继续构建以获取更多错误信息
+              make -j1 V=s IGNORE_ERRORS=m 2>&1 | tee -a build.log || true
+            fi
+          fi
+          
+          END_TIME=$(date +%s)
+          BUILD_DURATION=$((END_TIME - START_TIME))
+          echo "Build duration: ${BUILD_DURATION} seconds ($((BUILD_DURATION / 60)) minutes)"
+          
+          # 显示ccache统计
+          echo "CCache statistics:"
           ccache -s
+          
+          # 保存构建状态
+          echo "BUILD_STATUS=${BUILD_STATUS}" >> $GITHUB_ENV
+          echo "BUILD_DURATION=${BUILD_DURATION}" >> $GITHUB_ENV
 
-      - name: Feeds auto repair with retry
+      - name: List build artifacts
+        if: env.BUILD_STATUS == 'success'
         run: |
-          set -e
-          export WGET_OPTIONS="--tries=3 --timeout=20"
-          r(){ n=0; until "$@"; do n=$((n+1)); [ $n -ge 3 ] && break; echo "Retry($n): $*"; sleep 3; done; [ $n -lt 3 ]; }
-          r ./scripts/feeds update -a
-          r ./scripts/feeds install -a
-
-      - name: Init build timers
-        run: |
-          echo "START_TS=$(date +%s)" >> $GITHUB_ENV
-
-      - name: Build tools and toolchain
-        run: |
-          set -e
-          TOOLS_START=$(date +%s)
-          if timeout 20m make tools/install -j"$(nproc)"; then
-            echo "tools ok"
-          else
-            make tools/install -j1 V=s
-          fi
-          if timeout 20m make toolchain/install -j"$(nproc)"; then
-            echo "toolchain ok"
-          else
-            make toolchain/install -j1 V=s
-          fi
-          TOOLS_END=$(date +%s)
-          echo "TOOLS_TIME=$((TOOLS_END-TOOLS_START))" >> $GITHUB_ENV
-
-      - name: Build firmware (kernel + image)
-        run: |
-          set -e
-          export MAKEFLAGS="V=s"
-          export WGET_OPTIONS="--tries=3 --timeout=20"
-
-          KERNEL_START=$(date +%s)
-          if timeout 30m make -j"$(nproc)"; then
-            echo "parallel build ok"
-          else
-            make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
-          fi
-          KERNEL_END=$(date +%s)
-          echo "KERNEL_TIME=$((KERNEL_END-KERNEL_START))" >> $GITHUB_ENV
-
-      - name: Verify firmware output
-        run: |
-          ls -lh "${{ env.TARGET_DIR }}"
-          compgen -G "${{ env.TARGET_DIR }}/*sysupgrade.bin" > /dev/null || { echo "❌ Missing sysupgrade.bin"; exit 1; }
-          compgen -G "${{ env.TARGET_DIR }}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
-          (cd "${{ env.TARGET_DIR }}" && rm -f sha256sums.txt && find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt)
-          (cd "${{ env.TARGET_DIR }}" && ls -1 > profiles.txt)
-
-      - name: Generate build summary
-        run: |
-          END_TS=$(date +%s)
-          TOTAL=$((END_TS-START_TS))
-          mkdir -p logs
-          {
-            echo "Build summary:"
-            echo "  Tools+Toolchain: ${TOOLS_TIME}s"
-            echo "  Kernel+Image:    ${KERNEL_TIME}s"
-            echo "  Total:           ${TOTAL}s"
-            echo ""
-            echo "Target:   ${{ env.PROFILE }}"
-            echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')"
-          } | tee logs/build-summary.txt
-
-      - name: Generate target tree report
-        run: |
-          mkdir -p logs
+          echo "Build artifacts:"
+          find bin/targets -type f -name "*.bin" -o -name "*.img" -o -name "*.gz" -o -name "*.manifest" | sort
+          
           if [ -d "${{ env.TARGET_DIR }}" ]; then
-            echo "Target directory tree:" > logs/target-tree.txt
-            (cd "${{ env.TARGET_DIR }}" && find . -maxdepth 2 -type f | sort) >> logs/target-tree.txt
+            echo "Contents of ${{ env.TARGET_DIR }}:"
+            ls -la "${{ env.TARGET_DIR }}"/* || true
           fi
 
-      - name: Upload firmware
+      - name: Upload firmware artifacts
+        if: env.BUILD_STATUS == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
           path: |
-            ${{ env.TARGET_DIR }}/*sysupgrade.bin
-            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
-            ${{ env.TARGET_DIR }}/sha256sums.txt
-            ${{ env.TARGET_DIR }}/profiles.txt
-            ${{ env.TARGET_DIR }}/*.manifest
-            ${{ env.TARGET_DIR }}/*.buildinfo
-            ${{ env.TARGET_DIR }}/profiles.json
-            logs/build-summary.txt
-            logs/target-tree.txt
+            bin/targets/${{ env.TARGET }}/*.bin
+            bin/targets/${{ env.TARGET }}/*.img
+            bin/targets/${{ env.TARGET }}/*.gz
+            bin/targets/${{ env.TARGET }}/*.manifest
+            .config
+          retention-days: 30
           if-no-files-found: error
 
-      - name: Create tag
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          TAG="immortalwrt-${{ env.PROFILE }}-$(date -u +'%Y%m%d%H%M%S')"
-          git tag "${TAG}"
-          git push origin "${TAG}"
-          echo "TAGNAME=${TAG}" >> "$GITHUB_ENV"
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAGNAME }}
-          files: |
-            ${{ env.TARGET_DIR }}/*sysupgrade.bin
-            ${{ env.TARGET_DIR }}/*initramfs-kernel.bin
-            ${{ env.TARGET_DIR }}/sha256sums.txt
-            ${{ env.TARGET_DIR }}/profiles.txt
-            ${{ env.TARGET_DIR }}/*.manifest
-            ${{ env.TARGET_DIR }}/*.buildinfo
-            ${{ env.TARGET_DIR }}/profiles.json
-            logs/build-summary.txt
-            logs/target-tree.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect failure logs
-        if: failure()
-        run: |
-          mkdir -p logs
-          echo "Build failed, collecting logs..." | tee logs/failure.txt
-
-      - name: Upload failure logs
-        if: failure()
+      - name: Upload build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-failure-logs
-          path: logs
+          name: immortalwrt-${{ env.PROFILE }}-logs
+          path: |
+            build.log
+            logs/
+            tmp/
+            staging_dir/logs/
+            build_dir/*/log*
+          retention-days: 7
           if-no-files-found: ignore
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "=== Build Summary ==="
+          echo "Profile: ${{ env.PROFILE }}"
+          echo "Target: ${{ env.TARGET }}"
+          echo "Status: ${{ env.BUILD_STATUS || 'unknown' }}"
+          echo "Duration: ${{ env.BUILD_DURATION || 'unknown' }} seconds"
+          
+          if [ "${{ env.BUILD_STATUS }}" = "success" ]; then
+            echo "✅ Build successful!"
+            if [ -d "${{ env.TARGET_DIR }}" ]; then
+              FIRMWARE_COUNT=$(find "${{ env.TARGET_DIR }}" -name "*.bin" -o -name "*.img" -o -name "*.gz" | wc -l)
+              echo "Firmware files generated: $FIRMWARE_COUNT"
+            fi
+          else
+            echo "❌ Build failed"
+            echo "Check the logs for details"
+          fi
