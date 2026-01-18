@@ -73,12 +73,14 @@ jobs:
       - name: Auto register profile in filogic.mk
         run: |
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "" >> "${{ env.MK_FILE }}"
-            echo "define Device/${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
-            echo "  DEVICE_DTS := ${{ env.DTS_NAME }}" >> "${{ env.MK_FILE }}"
-            echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs" >> "${{ env.MK_FILE }}"
-            echo "endef" >> "${{ env.MK_FILE }}"
-            echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
+            {
+              echo ""
+              echo "define Device/${{ env.PROFILE }}"
+              echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
+              echo "  DEVICE_PACKAGES := kmod-usb3 kmod-usb-storage kmod-fs-f2fs"
+              echo "endef"
+              echo "TARGET_DEVICES += ${{ env.PROFILE }}"
+            } >> "${{ env.MK_FILE }}"
           fi
 
       - name: Auto generate .config
@@ -106,6 +108,26 @@ jobs:
 
           echo "✔ 3-piece consistency OK"
 
+      # 清理 filogic.mk 中所有无关设备，只保留当前设备
+      - name: Clean filogic.mk (only keep current device)
+        run: |
+          sed -i '/TARGET_DEVICES +=/d' "${{ env.MK_FILE }}"
+          echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
+
+      # 禁止构建 mt7981-rfb（fail-fast）
+      - name: Fail-fast: forbid building mt7981-rfb
+        run: |
+          if grep -q "mt7981-rfb" "${{ env.MK_FILE }}"; then
+            echo "❌ filogic.mk still contains mt7981-rfb, aborting."
+            exit 1
+          fi
+
+      # 记录 DTS/mk/profile diff（用于诊断）
+      - name: Save DTS/mk/profile diff
+        run: |
+          mkdir -p logs
+          git diff -- "${{ env.DTS_FILE }}" "${{ env.DTS_MK }}" "${{ env.MK_FILE }}" > logs/dts_mk_profile.diff || true
+
       # 补丁提前检测（fail-fast，不构建工具链）
       - name: Pre-check kernel patches (fail-fast)
         run: |
@@ -114,9 +136,20 @@ jobs:
           IGNORE_ERRORS=1 make target/linux/prepare V=s || true
           if ls build_dir/target-*/linux-*/linux-*/patches/*.rej 2>/dev/null; then
             echo "❌ Patch conflict detected (fail-fast)"
+            ls build_dir/target-*/linux-*/linux-*/patches/*.rej
             exit 1
           fi
           echo "✔ Kernel patch pre-check OK"
+
+      - name: Upload check-dts logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-dts-logs
+          path: |
+            logs/**
+            build_dir/target-*/linux-*/linux-*/patches/*.rej
+          if-no-files-found: ignore
 
   build:
     runs-on: ubuntu-22.04
@@ -159,6 +192,17 @@ jobs:
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates
           sudo update-ca-certificates || true
 
+      # feeds 缓存
+      - name: Cache feeds
+        uses: actions/cache@v4
+        with:
+          path: |
+            feeds
+            package/feeds
+          key: ${{ runner.os }}-feeds-${{ hashFiles('feeds.conf.default') }}
+          restore-keys: |
+            ${{ runner.os }}-feeds-
+
       - name: Cache dl
         uses: actions/cache@v4
         with:
@@ -189,6 +233,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-toolchain-
 
+      # kernel 缓存（极限加速）
+      - name: Cache kernel build
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: |
+            build_dir/target-*/linux-*/linux-*
+            build_dir/target-*/linux-*/vmlinux*
+            build_dir/target-*/linux-*/Image*
+          key: ${{ runner.os }}-kernel-${{ env.PROFILE }}-${{ hashFiles('target/linux/**', 'include/kernel-version.mk') }}
+          restore-keys: |
+            ${{ runner.os }}-kernel-${{ env.PROFILE }}-
+
       - name: Configure ccache
         run: |
           ccache -M 2G
@@ -202,9 +259,14 @@ jobs:
           r ./scripts/feeds update -a
           r ./scripts/feeds install -a
 
+      - name: Init build timers
+        run: |
+          echo "START_TS=$(date +%s)" >> $GITHUB_ENV
+
       - name: Build tools and toolchain
         run: |
           set -e
+          TOOLS_START=$(date +%s)
           if timeout 20m make tools/install -j"$(nproc)"; then
             echo "tools ok"
           else
@@ -215,17 +277,24 @@ jobs:
           else
             make toolchain/install -j1 V=s
           fi
+          TOOLS_END=$(date +%s)
+          echo "TOOLS_TIME=$((TOOLS_END-TOOLS_START))" >> $GITHUB_ENV
 
-      - name: Build firmware
+      - name: Build firmware (kernel + image)
         run: |
           set -e
           export MAKEFLAGS="V=s"
           export WGET_OPTIONS="--tries=3 --timeout=20"
+
+          KERNEL_START=$(date +%s)
+          # 这里不单独拆 kernel/image，直接 world，但时间统计仍然记录
           if timeout 30m make -j"$(nproc)"; then
             echo "parallel build ok"
           else
             make -j1 V=s || make -j1 V=s IGNORE_ERRORS=m
           fi
+          KERNEL_END=$(date +%s)
+          echo "KERNEL_TIME=$((KERNEL_END-KERNEL_START))" >> $GITHUB_ENV
 
       - name: Verify firmware output
         run: |
@@ -234,6 +303,33 @@ jobs:
           compgen -G "${{ env.TARGET_DIR }}/*initramfs-kernel.bin" > /dev/null || { echo "❌ Missing initramfs-kernel.bin"; exit 1; }
           (cd "${{ env.TARGET_DIR }}" && rm -f sha256sums.txt && find . -maxdepth 1 -type f -exec sha256sum {} \; > sha256sums.txt)
           (cd "${{ env.TARGET_DIR }}" && ls -1 > profiles.txt)
+
+      - name: Generate build summary
+        run: |
+          END_TS=$(date +%s)
+          TOTAL=$((END_TS-START_TS))
+          TOOLS=${TOOLS_TIME:-0}
+          KERNEL=${KERNEL_TIME:-0}
+
+          mkdir -p logs
+          {
+            echo "Build summary:"
+            echo "  Tools+Toolchain: ${TOOLS}s"
+            echo "  Kernel+Image:    ${KERNEL}s"
+            echo "  Total:           ${TOTAL}s"
+            echo ""
+            echo "Target:   ${{ env.PROFILE }}"
+            echo "Kernel:   $(grep -m1 'LINUX_VERSION-' include/kernel-version.mk || true)"
+            echo "Date UTC: $(date -u +'%Y-%m-%d %H:%M:%S')"
+          } | tee logs/build-summary.txt
+
+      - name: Generate target tree report
+        run: |
+          mkdir -p logs
+          if [ -d "${{ env.TARGET_DIR }}" ]; then
+            echo "Target directory tree:" > logs/target-tree.txt
+            (cd "${{ env.TARGET_DIR }}" && find . -maxdepth 2 -type f | sort) >> logs/target-tree.txt
+          fi
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
@@ -247,6 +343,9 @@ jobs:
             ${{ env.TARGET_DIR }}/*.manifest
             ${{ env.TARGET_DIR }}/*.buildinfo
             ${{ env.TARGET_DIR }}/profiles.json
+            logs/build-summary.txt
+            logs/target-tree.txt
+          if-no-files-found: error
 
       - name: Create tag
         run: |
@@ -269,5 +368,35 @@ jobs:
             ${{ env.TARGET_DIR }}/*.manifest
             ${{ env.TARGET_DIR }}/*.buildinfo
             ${{ env.TARGET_DIR }}/profiles.json
+            logs/build-summary.txt
+            logs/target-tree.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 失败时自动上传构建日志 + 简单失败分析
+      - name: Collect failure logs
+        if: failure()
+        run: |
+          mkdir -p logs
+          echo "Build failed, collecting logs..." | tee logs/failure.txt
+          # 简单失败原因分析（模式匹配）
+          if grep -q "Patch failed" -R . || grep -q ".rej" -R build_dir 2>/dev/null; then
+            echo "Reason: patch conflict detected" | tee -a logs/failure.txt
+          elif grep -q "No rule to make target" build.log 2>/dev/null; then
+            echo "Reason: missing make target" | tee -a logs/failure.txt
+          elif grep -q "Error 1" -R build_dir/target-*/linux-* 2>/dev/null; then
+            echo "Reason: kernel/image build error" | tee -a logs/failure.txt
+          else
+            echo "Reason: unknown, please inspect full logs" | tee -a logs/failure.txt
+          fi
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-failure-logs
+          path: |
+            logs/**
+            build_dir/**/log*.txt
+            build_dir/**/build.log
+          if-no-files-found: ignore
