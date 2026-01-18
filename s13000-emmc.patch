@@ -1,0 +1,29 @@
+diff --git a/target/linux/mediatek/image/filogic.mk b/target/linux/mediatek/image/filogic.mk
+index abc123..def456 100644
+--- a/target/linux/mediatek/image/filogic.mk
++++ b/target/linux/mediatek/image/filogic.mk
+@@ -5,7 +5,7 @@
+ include $(TOPDIR)/rules.mk
+ include $(INCLUDE_DIR)/image.mk
+
+-DTSDIR := $(DTSDIR)
++DTS_DIR := $(DTS_DIR)
+
+ # ===========================
+ #   SL3000 eMMC
+@@ -20,6 +20,12 @@
+   SUPPORTED_DEVICES := sl3000-emmc
+   DEVICE_PACKAGES := \
+     kmod-usb3 kmod-usb2 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
+     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk \
+     luci luci-theme-bootstrap fstools block-mount uboot-envtools fitblk
++
++  IMAGE_SIZE := 256m
++  KERNEL := kernel-bin
++  KERNEL_INITRAMFS := kernel-bin
++  ROOTFS := squashfs
++  IMAGES := sysupgrade.bin
++  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
+ endef
+
+ TARGET_DEVICES += sl3000-emmc
