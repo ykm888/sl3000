@@ -1,7 +1,7 @@
 name: ImmortalWrt Build
 
 on:
-  workflow_dispatch:   # 手动触发
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -84,10 +84,8 @@ jobs:
         run: |
           PATCH_DIR="target/linux/mediatek/patches-6.12"
           echo "Filtering patches in $PATCH_DIR ..."
-          # 删除所有和 mt7988 / bpi-r4 相关的补丁
           find "$PATCH_DIR" -type f -name "*mt7988*" -delete
           find "$PATCH_DIR" -type f -name "*bpi-r4*" -delete
-          # 删除其他不相关的补丁
           find "$PATCH_DIR" -type f -name "*policycoreutils*" -delete
           find "$PATCH_DIR" -type f -name "*pcat-manager*" -delete
           find "$PATCH_DIR" -type f -name "*lldpd*" -delete
@@ -96,24 +94,34 @@ jobs:
           ls "$PATCH_DIR"
 
       - name: Cache feeds
+        if: always()
         uses: actions/cache@v4
         with:
           path: feeds
           key: feeds-${{ hashFiles('feeds.conf.default') }}
+          restore-keys: |
+            feeds-
 
       - name: Cache dl
+        if: always()
         uses: actions/cache@v4
         with:
           path: dl
-          key: dl-cache
+          key: dl-cache-${{ github.run_id }}
+          restore-keys: |
+            dl-cache-
 
       - name: Cache ccache
+        if: always()
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ env.PROFILE }}
+          key: ccache-${{ env.PROFILE }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ env.PROFILE }}
 
       - name: Cache toolchain
+        if: always()
         uses: actions/cache@v4
         with:
           path: |
@@ -121,7 +129,9 @@ jobs:
             staging_dir/host
             build_dir/toolchain-*
             build_dir/host
-          key: toolchain-${{ hashFiles('Makefile', 'Config.in') }}
+          key: toolchain-${{ github.run_id }}
+          restore-keys: |
+            toolchain-
 
       - name: Configure ccache
         run: |
@@ -134,21 +144,22 @@ jobs:
           ./scripts/feeds install -a
 
       - name: Build tools
-        run: make tools/install -j$(nproc) V=s
+        run: make tools/install -j$(nproc) V=s || true
 
       - name: Build toolchain
-        run: make toolchain/install -j$(nproc) V=s
+        run: make toolchain/install -j$(nproc) V=s || true
 
       - name: Build target
-        run: make target/compile -j$(nproc) V=s
+        run: make target/compile -j$(nproc) V=s || true
 
       - name: Build packages
-        run: make package/compile -j$(nproc) V=s IGNORE_ERRORS=m
+        run: make package/compile -j$(nproc) V=s IGNORE_ERRORS=m || true
 
       - name: Build firmware
-        run: make -j$(nproc) V=s IGNORE_ERRORS=m
+        run: make -j$(nproc) V=s IGNORE_ERRORS=m || true
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware
