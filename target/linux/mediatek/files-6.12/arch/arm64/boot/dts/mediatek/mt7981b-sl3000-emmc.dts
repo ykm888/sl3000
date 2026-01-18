@@ -2,10 +2,10 @@
 
 /dts-v1/;
 
-/include/ "mt7981.dtsi"
+#include "mt7981.dtsi"
 
 / {
-    compatible = "sl,3000-emmc", "mediatek,mt7981b";
+    compatible = "sl3000,emmc", "mt7981b-sl3000-emmc", "mediatek,mt7981b";
     model = "SL-3000 eMMC Router";
 
     #address-cells = <2>;
@@ -33,7 +33,6 @@
         reg = <0x0 0x40000000 0x0 0x40000000>; /* 1GB */
     };
 
-    /* 固定 3.3V 电源 */
     reg_3p3v: regulator-3p3v {
         compatible = "regulator-fixed";
         regulator-name = "fixed-3.3v";
@@ -43,15 +42,13 @@
         regulator-boot-on;
     };
 
-    /* LED：全部不用宏，直接用字符串和数字 */
     leds {
         compatible = "gpio-leds";
 
         led_red: led-red {
             label = "red:status";
-            /* 不用 LED_COLOR_ID_* / LED_FUNCTION_* 宏，直接用字符串描述 */
             function = "status";
-            gpios = <&pio 10 0>; /* 0 代表 active-high */
+            gpios = <&pio 10 0>;
             default-state = "off";
         };
 
@@ -70,14 +67,13 @@
         };
     };
 
-    /* reset 按键：同样不用 KEY_* 宏 */
     gpio-keys {
         compatible = "gpio-keys";
 
         reset {
             label = "reset";
-            gpios = <&pio 1 1>; /* 1 代表 active-low */
-            linux,code = <0x198>; /* KEY_RESTART = 0x198 */
+            gpios = <&pio 1 1>; /* active-low */
+            linux,code = <0x198>; /* KEY_RESTART */
             debounce-interval = <50>;
         };
     };
