@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include "dt-bindings/interrupt-controller/irq.h"
+#include "dt-bindings/gpio/gpio.h"
+
+&soc {
+    compatible = "mediatek,mt7981-soc";
+    #address-cells = <2>;
+    #size-cells = <2>;
+    ranges;
+};
