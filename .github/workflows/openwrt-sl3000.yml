@@ -45,7 +45,6 @@ jobs:
         run: |
           echo "=== 构建前磁盘空间清理 ==="
           sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
-          sudo rm -rf ${{ env.BUILD_DIR }}/package ${{ env.BUILD_DIR }}/feeds
           find ${{ env.BUILD_DIR }}/dl -type f -size +100M -delete || true
           df -h
           echo "=== 磁盘空间清理完成 ✅ ==="
@@ -62,6 +61,7 @@ jobs:
         run: |
           cd ${{ env.BUILD_DIR }}
           DTS_FILE="${{ env.DTS_FILE }}"
+          missing=0
           grep -E '^#include|^/include/' "$DTS_FILE" | \
           sed -E 's/.*[<"]([^">]+)[">].*/\1/' | while read hdr; do
             echo "检测需要: $hdr"
@@ -69,13 +69,18 @@ jobs:
             mkdir -p "$(dirname "$local_path")"
             if [ ! -f "$local_path" ]; then
               echo "拉取官方: $hdr"
-              curl -L "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr" -o "$local_path" || {
-                echo "⚠️ 未找到官方文件: $hdr"
-              }
+              if ! curl -L "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr" -o "$local_path"; then
+                echo "❌ 未找到官方文件: $hdr"
+                missing=1
+              fi
             else
               echo "✅ 已存在: $hdr"
             fi
           done
+          if [ $missing -eq 1 ]; then
+            echo "❌ 缺失的 dt-bindings 文件未能拉取成功，构建终止"
+            exit 1
+          fi
 
       - name: Validate & Auto-fix 3-piece consistency
         run: |
@@ -121,9 +126,10 @@ jobs:
       - name: Setup feeds
         run: |
           cd ${{ env.BUILD_DIR }}
-          rm -rf feeds package
+          rm -rf feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          test -f package/Makefile || { echo "❌ package/Makefile 缺失"; exit 1; }
 
       - name: Download sources
         run: |
