@@ -25,7 +25,7 @@
 
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>; /* 1GB RAM */
+		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	reg_1p8v: regulator-1p8v {
@@ -49,14 +49,14 @@
 
 		reset {
 			label = "reset";
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 1>;
+			linux,code = <158>;
 		};
 
 		wps {
 			label = "wps";
-			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_WPS_BUTTON>;
+			gpios = <&pio 0 1>;
+			linux,code = <528>;
 		};
 	};
 
@@ -64,21 +64,21 @@
 		compatible = "gpio-leds";
 
 		led_status_green: status_green {
-			function = LED_FUNCTION_STATUS;
-			color = <LED_COLOR_ID_GREEN>;
-			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+			function = "status";
+			color = <2>;
+			gpios = <&pio 9 1>;
 		};
 
 		led_status_red: status_red {
-			function = LED_FUNCTION_FAULT;
-			color = <LED_COLOR_ID_RED>;
-			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
+			function = "fault";
+			color = <1>;
+			gpios = <&pio 8 1>;
 		};
 
 		led_status_blue: status_blue {
-			function = LED_FUNCTION_WLAN;
-			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+			function = "wlan";
+			color = <3>;
+			gpios = <&pio 7 1>;
 		};
 	};
 };
@@ -115,7 +115,7 @@
 		switch@1f {
 			compatible = "mediatek,mt7531";
 			reg = <0x1f>;
-			reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
+			reset-gpios = <&pio 39 0>;
 
 			ports {
 				#address-cells = <1>;
