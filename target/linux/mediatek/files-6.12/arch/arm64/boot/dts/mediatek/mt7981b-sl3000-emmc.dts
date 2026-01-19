@@ -114,6 +114,8 @@
             compatible = "mediatek,mt7981-eth";
             reg = <0x0 0x15100000 0x0 0x80000>;
             interrupts = <0 196 4>;
+            #address-cells = <1>;
+            #size-cells = <0>;
             status = "okay";
 
             mac@0 {
