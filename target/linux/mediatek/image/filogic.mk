@@ -73,6 +73,9 @@ define Device/sl3000-emmc
     kmod-dsa-mt7530 \
     kmod-mmc \
     kmod-mmc-mtk \
+    kmod-fs-ext4 \
+    kmod-fs-btrfs \
+    kmod-dm \
     luci \
     luci-theme-bootstrap \
     fstools \
@@ -84,7 +87,7 @@ define Device/sl3000-emmc
     shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel \
     dockerd docker docker-compose luci-app-dockerman
 
-  IMAGE_SIZE := 256m
+  IMAGE_SIZE := 10240m
   KERNEL := kernel-bin
   KERNEL_INITRAMFS := kernel-bin
   ROOTFS := squashfs
