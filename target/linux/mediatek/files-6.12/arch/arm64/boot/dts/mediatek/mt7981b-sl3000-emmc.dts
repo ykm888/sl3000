@@ -11,7 +11,7 @@
 
     memory@40000000 {
         device_type = "memory";
-        reg = <0x0 0x40000000 0x0 0x40000000>; /* 1GB RAM */
+        reg = <0x0 0x40000000 0x20 0x00000000>; /* 128GB RAM */
     };
 
     chosen {
@@ -105,7 +105,7 @@
 
                 partition@5A2000000 {
                     label = "data";
-                    reg = <0x5 0xA2000000  0x0 0x60000000>; /* 1.5GB 剩余空间示例 */
+                    reg = <0x5 0xA2000000  0x0 0x60000000>; /* 1.5GB */
                 };
             };
         };
@@ -139,6 +139,12 @@
                     pause;
                 };
             };
+        };
+
+        wifi: wifi@18000000 {
+            compatible = "mediatek,mt7981-wmac";
+            reg = <0x0 0x18000000 0x0 0x100000>;
+            status = "okay";
         };
 
         leds {
