@@ -41,6 +41,15 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
+      - name: Optimize disk space (pre-build)
+        run: |
+          echo "=== 构建前磁盘空间清理 ==="
+          sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
+          sudo rm -rf ${{ env.BUILD_DIR }}/package ${{ env.BUILD_DIR }}/feeds
+          find ${{ env.BUILD_DIR }}/dl -type f -size +100M -delete || true
+          df -h
+          echo "=== 磁盘空间清理完成 ✅ ==="
+
       - name: Clean DTS file
         run: |
           cd ${{ env.BUILD_DIR }}
@@ -55,10 +64,22 @@ jobs:
           sed -i 's|<dt-bindings/input/input.h>|<dt-bindings/input/input-event-codes.h>|' "${{ env.DTS_FILE }}"
           sed -i 's|<dt-bindings/leds/common.h>|<dt-bindings/leds/leds.h>|' "${{ env.DTS_FILE }}"
 
-      - name: Check DTS syntax
+      - name: Check DTS header includes
         run: |
           cd ${{ env.BUILD_DIR }}
-          dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
+          echo "=== 检查 DTS 引用的头文件是否存在 ==="
+          DTS_FILE="${{ env.DTS_FILE }}"
+          grep -E '^#include' "$DTS_FILE" | while read -r line; do
+            hdr=$(echo "$line" | sed -E 's/^#include[[:space:]]+[<"]([^">]+)[">].*/\1/')
+            echo "检测: $hdr"
+            if find . -path "*/include/*" -name "$(basename $hdr)" | grep -q "$(basename $hdr)"; then
+              echo "✅ 存在: $hdr"
+            else
+              echo "❌ 缺失: $hdr"
+              exit 1
+            fi
+          done
+          echo "=== DTS 引用检查完成 ✅ ==="
 
       - name: Validate & Auto-fix 3-piece consistency
         run: |
@@ -90,23 +111,30 @@ jobs:
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           make defconfig
+          make defconfig
           echo "=== 三件套检测完成 ✅ 固件必定可生成 ==="
 
-      - name: Clean invalid patches
+      - name: Validate patches
         run: |
           cd ${{ env.BUILD_DIR }}
           for p in target/linux/mediatek/patches-6.12/*.patch; do
             if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
-              echo "⚠️ Removing invalid patch: $p"
-              rm -f "$p"
+              echo "❌ Patch failed: $p"
+              exit 1
             fi
           done
 
       - name: Setup feeds
         run: |
           cd ${{ env.BUILD_DIR }}
+          rm -rf feeds package
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: Download sources
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          make download -j$(nproc)
 
       - name: Build firmware
         run: |
@@ -117,6 +145,8 @@ jobs:
       - name: Verify firmware output
         run: |
           cd ${{ env.BUILD_DIR }}
+          ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
+          md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
           find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" -o -name "*sl3000*.img" -o -name "*sl3000*.tar.gz" -o -name "*sl3000*.ubi" \) || {
             echo "❌ No firmware image found. Check profile or squashfs config.";
             exit 1;
@@ -158,6 +188,7 @@ jobs:
           echo "Target Directory: ${{ env.TARGET_DIR }}"
           echo "固件产物:"
           ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
+          md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
           echo "================"
 
       - name: Upload build logs
@@ -167,27 +198,24 @@ jobs:
           path: |
             ${{ env.BUILD_DIR }}/logs
             ${{ env.BUILD_DIR }}/build_dir/*/log.txt
+            ${{ env.BUILD_DIR }}/build.log
+            ${{ env.BUILD_DIR }}/compile.log
             ${{ env.BUILD_DIR }}/.config
 
-      - name: List firmware files
+      - name: Optimize disk space (post-build)
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "=== 固件产物列表 ==="
-          ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
-          echo "==================="
-
-      - name: Final disk usage report
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 磁盘空间使用情况 ==="
+          echo "=== 构建后磁盘空间清理 ==="
+          rm -rf tmp build_dir staging_dir
+          rm -rf package feeds
+          find dl -type f -size +100M -delete || true
           df -h
-          du -sh ${{ env.TARGET_DIR }} || true
-          echo "======================="
+          echo "=== 清理完成 ✅ ==="
 
       - name: Cleanup workspace
         run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 清理工作目录 ==="
-          rm -rf tmp build_dir staging_dir
-          rm -rf package feeds
-          echo "清理完成 ✅"
+          echo "=== 清理 Actions 工作目录 ==="
+          sudo rm -rf /mnt/openwrt
+          sudo rm -rf ${{ github.workspace }}/*
+          df -h
+          echo "工作目录清理完成 ✅"
