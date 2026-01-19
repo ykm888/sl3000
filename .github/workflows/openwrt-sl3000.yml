@@ -1,4 +1,4 @@
-name: ImmortalWrt Build
+name: ImmortalWrt Build SL3000
 
 on:
   workflow_dispatch:
@@ -18,10 +18,10 @@ env:
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   CCACHE_DIR: ~/.ccache
-  BUILD_DIR: /mnt/openwrt   # 👈 构建目录迁移到 /mnt
+  BUILD_DIR: /mnt/openwrt
 
 jobs:
-  check-dts:
+  build:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -29,34 +29,36 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Move source to /mnt
+      - name: Prepare build environment
         run: |
           sudo mkdir -p ${{ env.BUILD_DIR }}
-          sudo rsync -a --delete . ${{ env.BUILD_DIR }}
+          sudo chown -R runner:runner /mnt
+          rsync -a --delete . ${{ env.BUILD_DIR }}
           cd ${{ env.BUILD_DIR }}
 
-      - name: Install dtc
-        run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
+            ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      - name: Clean DTS file
+      - name: Apply DTS & MK Configuration
         run: |
           cd ${{ env.BUILD_DIR }}
-          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS not found"; exit 1; }
-          sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
-          sed -i 's/\r$//' "${{ env.DTS_FILE }}" || true
-          tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
-          mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
-
-      - name: Check DTS syntax
-        run: |
-          cd ${{ env.BUILD_DIR }}
+          # 修复并对齐 DTS
+          if [ -f "${{ env.DTS_FILE }}" ]; then
+            sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
+            sed -i 's/\r$//' "${{ env.DTS_FILE }}"
+          fi
+          
+          # 检测语法
           dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
-
-      - name: Validate & Auto-fix 3-piece consistency
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 三件套检测开始 ==="
+          
+          # 同步 Makefile
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          
+          # 同步设备定义
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
               echo ""
@@ -72,120 +74,66 @@ jobs:
               echo "TARGET_DEVICES += ${{ env.PROFILE }}"
             } >> "${{ env.MK_FILE }}"
           fi
-          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-          make defconfig
-          echo "=== 三件套检测完成 ✅ 固件必定可生成 ==="
 
-      - name: Clean invalid patches
+      - name: Patch Cleanup
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "=== 检查并删除失效补丁 ==="
-          for p in target/linux/mediatek/patches-6.12/*.patch; do
-            if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
-              echo "⚠️ Removing invalid patch: $p"
-              rm -f "$p"
-            fi
-          done
-          echo "=== 补丁清理完成 ==="
+          PATCH_DIR="target/linux/mediatek/patches-6.12"
+          if [ -d "$PATCH_DIR" ]; then
+            for p in $PATCH_DIR/*.patch; do
+              [ -e "$p" ] || continue
+              if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
+                echo "Removing broken patch: $p"
+                rm -f "$p"
+              fi
+            done
+          fi
 
-  build:
-    runs-on: ubuntu-22.04
-    needs: check-dts
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Move source to /mnt
-        run: |
-          sudo mkdir -p ${{ env.BUILD_DIR }}
-          sudo rsync -a --delete . ${{ env.BUILD_DIR }}
-          cd ${{ env.BUILD_DIR }}
-
-      - name: Clean invalid patches (build stage)
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 再次检查并删除失效补丁 ==="
-          for p in target/linux/mediatek/patches-6.12/*.patch; do
-            if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
-              echo "⚠️ Removing invalid patch: $p"
-              rm -f "$p"
-            fi
-          done
-          echo "=== 补丁清理完成 ==="
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison gawk gettext \
-            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
-            ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
-
-      - name: Setup feeds
+      - name: Update and Install Feeds
         run: |
           cd ${{ env.BUILD_DIR }}
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build firmware
+      - name: Build Firmware
         run: |
           cd ${{ env.BUILD_DIR }}
+          # 注入 Target 配置
+          [ -f .config ] || touch .config
+          sed -i '/CONFIG_TARGET_mediatek/d' .config
+          sed -i '/CONFIG_TARGET_mediatek_filogic/d' .config
+          echo "CONFIG_TARGET_mediatek=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+          echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+          
           make defconfig
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: Verify firmware output
+      - name: Verify Output
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "Checking firmware output..."
           ls -lh ${{ env.TARGET_DIR }}
-          find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" -o -name "*sl3000*.img" -o -name "*sl3000*.tar.gz" -o -name "*sl3000*.ubi" \) || {
-            echo "❌ No firmware image found. Check profile or squashfs config.";
+          find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" \) || {
+            echo "Error: No firmware images found."
             exit 1;
           }
 
-      - name: Upload artifacts
+      - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ env.PROFILE }}-firmware-${{ github.run_number }}
+          name: SL3000-Firmware-v${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*.bin
-            ${{ env.TARGET_DIR }}/**/*sl3000*.itb
-            ${{ env.TARGET_DIR }}/**/*sl3000*.img
-            ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
-            ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
+            ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.bin
+            ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.itb
 
-      - name: Publish firmware to Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
+        if: github.event_name == 'workflow_dispatch'
         with:
           tag_name: v${{ github.run_number }}
-          name: ImmortalWrt SL3000 Firmware ${{ github.run_number }}
+          name: SL3000 Firmware v${{ github.run_number }}
           body: |
-            自动构建固件发布
-            - Profile: ${{ env.PROFILE }}
-            - 构建号: ${{ github.run_number }}
+            Automated Build for SL-3000 (MT7981B eMMC)
           files: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*.bin
-            ${{ env.TARGET_DIR }}/**/*sl3000*.itb
-            ${{ env.TARGET_DIR }}/**/*sl3000*.img
-            ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
-            ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
-
-      - name: Optimize disk space
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "Cleaning up unnecessary files..."
-          rm -rf tmp
-          rm -rf build_dir/target-*
-          rm -rf staging_dir/target-*
-          find dl -type f -size +100M -delete || true
-          df -h
-          du -sh ${{ env.TARGET_DIR }} || true
-
-      - name: List firmware files
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 固件产物列表 ==="
-          ls -lh ${{ env.TARGET_DIR }}
-          echo "==================="
+            ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.bin
+            ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.itb
