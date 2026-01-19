@@ -58,24 +58,23 @@ jobs:
           tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
-      - name: Fix DTS includes
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          sed -i 's|<dt-bindings/input/input.h>|<dt-bindings/input/input-event-codes.h>|' "${{ env.DTS_FILE }}"
-          sed -i 's|<dt-bindings/leds/common.h>|<dt-bindings/leds/leds.h>|' "${{ env.DTS_FILE }}"
-
       - name: Check DTS header includes
         run: |
           cd ${{ env.BUILD_DIR }}
           echo "=== 检查 DTS 引用的头文件是否存在 ==="
           DTS_FILE="${{ env.DTS_FILE }}"
-          grep -E '^#include' "$DTS_FILE" | while read -r line; do
-            hdr=$(echo "$line" | sed -E 's/^#include[[:space:]]+[<"]([^">]+)[">].*/\1/')
+
+          # 支持 #include 和 /include/ 两种语法
+          grep -E '^#include|^/include/' "$DTS_FILE" | while read -r line; do
+            hdr=$(echo "$line" | sed -E 's|^#include[[:space:]]+[<"]([^">]+)[">].*|\1|;s|^/include/[[:space:]]+"([^"]+)".*|\1|')
             echo "检测: $hdr"
-            if find . -name "$(basename $hdr)" | grep -q "$(basename $hdr)"; then
+
+            # 在源码树里查找完整路径
+            if find . -path "*/$hdr" | grep -q "$hdr"; then
               echo "✅ 存在: $hdr"
             else
               echo "❌ 缺失: $hdr"
+              echo "提示: 请确认文件是否在 include/dt-bindings 或 arch/arm64/boot/dts/mediatek 下"
               exit 1
             fi
           done
