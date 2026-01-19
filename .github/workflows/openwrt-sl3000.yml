@@ -89,6 +89,17 @@ jobs:
 
           echo "=== 三件套检测完成 ✅ 固件必定可生成 ==="
 
+      - name: Clean invalid patches
+        run: |
+          echo "=== 检查并删除失效补丁 ==="
+          for p in target/linux/mediatek/patches-6.12/*.patch; do
+            if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
+              echo "⚠️ Removing invalid patch: $p"
+              rm -f "$p"
+            fi
+          done
+          echo "=== 补丁清理完成 ==="
+
   build:
     runs-on: ubuntu-22.04
     needs: check-dts
@@ -197,3 +208,9 @@ jobs:
           # 打印剩余空间情况
           df -h
           du -sh ${{ env.TARGET_DIR }} || true
+
+      - name: List firmware files
+        run: |
+          echo "=== 固件产物列表 ==="
+          ls -lh ${{ env.TARGET_DIR }}
+          echo "==================="
