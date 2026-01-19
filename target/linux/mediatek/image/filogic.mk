@@ -18,7 +18,7 @@ define Device/mt7981-default
   DEVICE_DTS_DIR := $(DTS_DIR)
   SUPPORTED_DEVICES := mt7981-rfb
   DEVICE_PACKAGES := \
-    kmod-usb3 kmod-usb2 kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
+    kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk
   IMAGE_SIZE := 256m
   KERNEL := kernel-bin
@@ -40,7 +40,7 @@ define Device/mt7988-default
   DEVICE_DTS_DIR := $(DTS_DIR)
   SUPPORTED_DEVICES := mt7988-rfb
   DEVICE_PACKAGES := \
-    kmod-usb3 kmod-usb2 kmod-mt76 kmod-mt7988-firmware \
+    kmod-mt76 kmod-mt7988-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk
   IMAGE_SIZE := 512m
   KERNEL := kernel-bin
@@ -63,8 +63,6 @@ define Device/sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)
   SUPPORTED_DEVICES := sl3000-emmc mt7981b-sl3000-emmc
   DEVICE_PACKAGES := \
-    kmod-usb3 \
-    kmod-usb2 \
     kmod-mt76 \
     kmod-mt7981-firmware \
     mt7981-wo-firmware \
