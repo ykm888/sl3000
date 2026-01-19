@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # 优化磁盘空间，浅克隆
 
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
@@ -93,6 +95,8 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # 优化磁盘空间，浅克隆
 
       - name: Install build dependencies
         run: |
@@ -181,3 +185,15 @@ jobs:
             ${{ env.TARGET_DIR }}/**/*sl3000*.img
             ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
             ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
+
+      - name: Optimize disk space
+        run: |
+          echo "Cleaning up unnecessary files..."
+          rm -rf tmp
+          rm -rf build_dir/target-*
+          rm -rf staging_dir/target-*
+          # 删除 dl 目录中过大的文件，避免缓存膨胀
+          find dl -type f -size +100M -delete || true
+          # 打印剩余空间情况
+          df -h
+          du -sh ${{ env.TARGET_DIR }} || true
