@@ -45,19 +45,19 @@ jobs:
         run: |
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            cat >> "${{ env.MK_FILE }}" <<EOF
-
-define Device/${{ env.PROFILE }}
-  DEVICE_DTS := ${{ env.DTS_NAME }}
-  DEVICE_TITLE := SL-3000 eMMC Board
-  SUPPORTED_DEVICES := ${{ env.PROFILE }} ${{ env.DTS_NAME }}
-  ROOTFS := squashfs
-  IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
-endef
-
-TARGET_DEVICES += ${{ env.PROFILE }}
-EOF
+            {
+              echo ""
+              echo "define Device/${{ env.PROFILE }}"
+              echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
+              echo "  DEVICE_TITLE := SL-3000 eMMC Board"
+              echo "  SUPPORTED_DEVICES := ${{ env.PROFILE }} ${{ env.DTS_NAME }}"
+              echo "  ROOTFS := squashfs"
+              echo "  IMAGES := sysupgrade.bin"
+              echo "  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata"
+              echo "endef"
+              echo ""
+              echo "TARGET_DEVICES += ${{ env.PROFILE }}"
+            } >> "${{ env.MK_FILE }}"
           fi
 
       - name: Use provided .config
@@ -164,8 +164,8 @@ EOF
         with:
           name: immortalwrt-${{ env.PROFILE }}-firmware-${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/**/*sl3000-emmc*.bin
-            ${{ env.TARGET_DIR }}/**/*sl3000-emmc*.itb
-            ${{ env.TARGET_DIR }}/**/*sl3000-emmc*.img
-            ${{ env.TARGET_DIR }}/**/*sl3000-emmc*.tar.gz
-            ${{ env.TARGET_DIR }}/**/*sl3000-emmc*.ubi
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*.bin
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*.itb
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*.img
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*.tar.gz
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*.ubi
