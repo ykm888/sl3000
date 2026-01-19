@@ -21,12 +21,11 @@ define Device/sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)
   SUPPORTED_DEVICES := sl3000-emmc mt7981b-sl3000-emmc
   
-  # 集成全套驱动与插件
+  # 集成全套驱动与插件（去掉 USB）
   DEVICE_PACKAGES := \
     kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 \
     kmod-mmc kmod-mmc-mtk kmod-fs-ext4 kmod-fs-btrfs kmod-dm \
-    kmod-usb3 kmod-usb-dwc3-mtk \
     luci luci-theme-bootstrap fstools block-mount uboot-envtools fitblk \
     luci-app-passwall2 xray-core \
     shadowsocks-libev-ss-local shadowsocks-libev-ss-redir \
@@ -43,3 +42,5 @@ define Device/sl3000-emmc
 endef
 
 TARGET_DEVICES += sl3000-emmc
+
+$(eval $(call BuildImage))
