@@ -1,0 +1,54 @@
+name: Clean Unrelated Mediatek Patches
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PATCH_DIR: target/linux/mediatek/patches-6.12
+
+jobs:
+  clean:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Delete unrelated patches
+        run: |
+          cd $PATCH_DIR
+
+          echo "=== 保留以下关键字的补丁 ==="
+          echo "  - 7981"
+          echo "  - sl3000"
+          echo "  - filogic"
+
+          echo "=== 删除所有其他补丁 ==="
+
+          for p in *.patch; do
+            if echo "$p" | grep -Eq "7981|sl3000|filogic"; then
+              echo "保留: $p"
+            else
+              echo "删除: $p"
+              rm -f "$p"
+            fi
+          done
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          if git status --porcelain | grep -q "patches-6.12"; then
+            git add $PATCH_DIR
+            git commit -m "Clean: 删除所有与 MT7981/SL3000 无关的补丁"
+            git push
+            echo "补丁清理已提交"
+          else
+            echo "没有补丁需要删除"
+          fi
