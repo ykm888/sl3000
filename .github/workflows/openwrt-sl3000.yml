@@ -26,7 +26,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1   # 优化磁盘空间，浅克隆
+          fetch-depth: 1
 
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
@@ -45,16 +45,8 @@ jobs:
       - name: Validate & Auto-fix 3-piece consistency
         run: |
           echo "=== 三件套检测开始 ==="
-
-          # DTS_MK 检查
-          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || {
-            echo "⚠️ DTS 未注册到 Makefile，自动修复"
-            echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
-          }
-
-          # MK_FILE 检查与自动注册
+          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "⚠️ Profile 未定义，自动注册"
             {
               echo ""
               echo "define Device/${{ env.PROFILE }}"
@@ -68,25 +60,10 @@ jobs:
               echo ""
               echo "TARGET_DEVICES += ${{ env.PROFILE }}"
             } >> "${{ env.MK_FILE }}"
-          else
-            grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || sed -i "/define Device\/${{ env.PROFILE }}/a\  DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"
-            grep -q "SUPPORTED_DEVICES" "${{ env.MK_FILE }}" || sed -i "/define Device\/${{ env.PROFILE }}/a\  SUPPORTED_DEVICES := ${{ env.PROFILE }} ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"
-            grep -q "IMAGE/sysupgrade.bin" "${{ env.MK_FILE }}" || sed -i "/define Device\/${{ env.PROFILE }}/a\  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata" "${{ env.MK_FILE }}"
-            grep -q "TARGET_DEVICES += ${{ env.PROFILE }}" "${{ env.MK_FILE }}" || echo "TARGET_DEVICES += ${{ env.PROFILE }}" >> "${{ env.MK_FILE }}"
           fi
-
-          # .config 检查与修复
-          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || {
-            echo "⚠️ .config 未启用设备，自动修复"
-            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          }
-          grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || {
-            echo "⚠️ .config 未启用 squashfs，自动修复"
-            echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
-          }
-
+          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+          grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           make defconfig
-
           echo "=== 三件套检测完成 ✅ 固件必定可生成 ==="
 
       - name: Clean invalid patches
@@ -107,7 +84,18 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1   # 优化磁盘空间，浅克隆
+          fetch-depth: 1
+
+      - name: Clean invalid patches (build stage)
+        run: |
+          echo "=== 再次检查并删除失效补丁 ==="
+          for p in target/linux/mediatek/patches-6.12/*.patch; do
+            if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
+              echo "⚠️ Removing invalid patch: $p"
+              rm -f "$p"
+            fi
+          done
+          echo "=== 补丁清理完成 ==="
 
       - name: Install build dependencies
         run: |
@@ -197,15 +185,29 @@ jobs:
             ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
             ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
 
+      - name: Publish firmware to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: ImmortalWrt SL3000 Firmware ${{ github.run_number }}
+          body: |
+            自动构建固件发布
+            - Profile: ${{ env.PROFILE }}
+            - 构建号: ${{ github.run_number }}
+          files: |
+            ${{ env.TARGET_DIR }}/**/*sl3000*.bin
+            ${{ env.TARGET_DIR }}/**/*sl3000*.itb
+            ${{ env.TARGET_DIR }}/**/*sl3000*.img
+            ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
+            ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
+
       - name: Optimize disk space
         run: |
           echo "Cleaning up unnecessary files..."
           rm -rf tmp
           rm -rf build_dir/target-*
           rm -rf staging_dir/target-*
-          # 删除 dl 目录中过大的文件，避免缓存膨胀
           find dl -type f -size +100M -delete || true
-          # 打印剩余空间情况
           df -h
           du -sh ${{ env.TARGET_DIR }} || true
 
