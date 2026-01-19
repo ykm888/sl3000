@@ -46,19 +46,21 @@ jobs:
       - name: Apply DTS & MK Configuration
         run: |
           cd ${{ env.BUILD_DIR }}
-          # 修复并对齐 DTS
+          # 预先清理 DTS 潜在问题
           if [ -f "${{ env.DTS_FILE }}" ]; then
             sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
             sed -i 's/\r$//' "${{ env.DTS_FILE }}"
           fi
           
-          # 检测语法
-          dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
-          
-          # 同步 Makefile
-          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          # 核心修复：使用 GCC 预处理器处理 DTS 的 #include
+          gcc -I target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/ \
+              -I include/ \
+              -I scripts/dtc/include-prefixes/ \
+              -E -p -nostdinc -x assembler-with-cpp "${{ env.DTS_FILE }}" | dtc -I dts -O dtb -o /tmp/test.dtb -
           
           # 同步设备定义
+          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
               echo ""
@@ -98,7 +100,7 @@ jobs:
       - name: Build Firmware
         run: |
           cd ${{ env.BUILD_DIR }}
-          # 注入 Target 配置
+          # 强制注入目标设备配置
           [ -f .config ] || touch .config
           sed -i '/CONFIG_TARGET_mediatek/d' .config
           sed -i '/CONFIG_TARGET_mediatek_filogic/d' .config
@@ -134,6 +136,9 @@ jobs:
           name: SL3000 Firmware v${{ github.run_number }}
           body: |
             Automated Build for SL-3000 (MT7981B eMMC)
+            - Chip: MT7981B
+            - Storage: 128GB eMMC
+            - RAM: 1GB
           files: |
             ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.bin
             ${{ env.BUILD_DIR }}/${{ env.TARGET_DIR }}/**/*sl3000*.itb
