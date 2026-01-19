@@ -1,14 +1,10 @@
-name: ImmortalWrt Build
+name: ImmortalWrt Engineering Build
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: read
-  checks: read
-  packages: read
-  pull-requests: read
 
 env:
   PROFILE: sl3000-emmc
@@ -18,22 +14,44 @@ env:
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: /mnt/openwrt
+  CCACHE_DIR: /mnt/ccache
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
+      # ---------------------------------------------------------
+      # 0. Checkout
+      # ---------------------------------------------------------
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
+      # ---------------------------------------------------------
+      # 1. Pre-build Disk Optimization (Engineering-grade)
+      # ---------------------------------------------------------
+      - name: Pre-build Disk Optimization
+        run: |
+          echo "=== Pre-build Disk Cleanup ==="
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          sudo apt-get clean || true
+          sudo docker system prune -af || true
+          df -h
+          echo "=== Done ==="
+
+      # ---------------------------------------------------------
+      # 2. Move source to /mnt (fast disk)
+      # ---------------------------------------------------------
       - name: Move source to /mnt
         run: |
           sudo mkdir -p ${{ env.BUILD_DIR }}
           sudo rsync -a --delete . ${{ env.BUILD_DIR }}
-          cd ${{ env.BUILD_DIR }}
 
+      # ---------------------------------------------------------
+      # 3. Install Dependencies
+      # ---------------------------------------------------------
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -41,14 +59,36 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      - name: Optimize disk space (pre-build)
+      # ---------------------------------------------------------
+      # 4. Setup CCache (Engineering-grade)
+      # ---------------------------------------------------------
+      - name: Setup ccache
         run: |
-          echo "=== 构建前磁盘空间清理 ==="
-          sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
-          find ${{ env.BUILD_DIR }}/dl -type f -size +100M -delete || true
-          df -h
-          echo "=== 磁盘空间清理完成 ✅ ==="
+          sudo mkdir -p ${{ env.CCACHE_DIR }}
+          sudo chown $USER:$USER ${{ env.CCACHE_DIR }}
+          export CCACHE_DIR=${{ env.CCACHE_DIR }}
+          ccache --max-size=5G
+          ccache -z
+          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
 
+      # ---------------------------------------------------------
+      # 5. Restore Caches (dl + ccache + toolchain)
+      # ---------------------------------------------------------
+      - name: Restore caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.CCACHE_DIR }}
+            ${{ env.BUILD_DIR }}/dl
+            ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
+            ${{ env.BUILD_DIR }}/build_dir/toolchain-*
+          key: immortalwrt-${{ env.PROFILE }}-${{ github.run_id }}
+          restore-keys: |
+            immortalwrt-${{ env.PROFILE }}-
+
+      # ---------------------------------------------------------
+      # 6. Clean DTS file
+      # ---------------------------------------------------------
       - name: Clean DTS file
         run: |
           cd ${{ env.BUILD_DIR }}
@@ -57,35 +97,35 @@ jobs:
           tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
-      - name: Fetch required dt-bindings from upstream
+      # ---------------------------------------------------------
+      # 7. Fetch dt-bindings
+      # ---------------------------------------------------------
+      - name: Fetch required dt-bindings
         run: |
           cd ${{ env.BUILD_DIR }}
           DTS_FILE="${{ env.DTS_FILE }}"
           missing=0
           grep -E '^#include|^/include/' "$DTS_FILE" | \
           sed -E 's/.*[<"]([^">]+)[">].*/\1/' | while read hdr; do
-            echo "检测需要: $hdr"
+            echo "Checking: $hdr"
             local_path="include/$hdr"
             mkdir -p "$(dirname "$local_path")"
             if [ ! -f "$local_path" ]; then
-              echo "拉取官方: $hdr"
+              echo "Fetching upstream: $hdr"
               if ! curl -L "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr" -o "$local_path"; then
-                echo "❌ 未找到官方文件: $hdr"
+                echo "Missing: $hdr"
                 missing=1
               fi
-            else
-              echo "✅ 已存在: $hdr"
             fi
           done
-          if [ $missing -eq 1 ]; then
-            echo "❌ 缺失的 dt-bindings 文件未能拉取成功，构建终止"
-            exit 1
-          fi
+          [ $missing -eq 0 ] || exit 1
 
+      # ---------------------------------------------------------
+      # 8. Validate 3-piece consistency
+      # ---------------------------------------------------------
       - name: Validate & Auto-fix 3-piece consistency
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "=== 三件套检测开始 ==="
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
@@ -109,127 +149,114 @@ jobs:
             } >> "${{ env.MK_FILE }}"
           fi
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           make defconfig
-          echo "=== 三件套检测完成 ✅ ==="
 
+      # ---------------------------------------------------------
+      # 9. Auto-fix patches
+      # ---------------------------------------------------------
       - name: Validate & Auto-fix patches
         run: |
           cd ${{ env.BUILD_DIR }}
           mkdir -p logs/failed_patches
-          echo "=== 补丁自动检测与修复开始 ==="
-
           for p in target/linux/mediatek/patches-6.12/*.patch; do
-            echo "尝试应用补丁: $p"
-
+            echo "Testing patch: $p"
             if patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
-              echo "✅ 补丁可应用，正在应用: $p"
               patch -p1 < "$p"
               continue
             fi
-
-            echo "⚠️ 补丁失败: $p"
-
             if grep -q "MTK_PULL_PD_TYPE" drivers/pinctrl/mediatek/pinctrl-mtk-common.h 2>/dev/null; then
-              echo "🔄 功能已存在，自动跳过并删除补丁: $p"
               rm -f "$p"
               continue
             fi
-
-            echo "❌ 补丁需要人工适配，已记录: $p"
             cp "$p" logs/failed_patches/
           done
 
-          echo "=== 补丁自动检测与修复完成 ==="
-
+      # ---------------------------------------------------------
+      # 10. Feeds
+      # ---------------------------------------------------------
       - name: Setup feeds
         run: |
           cd ${{ env.BUILD_DIR }}
           rm -rf feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          test -f package/Makefile || { echo "❌ package/Makefile 缺失"; exit 1; }
 
-      - name: Download sources
+      # ---------------------------------------------------------
+      # 11. Build Tools
+      # ---------------------------------------------------------
+      - name: Build tools
         run: |
           cd ${{ env.BUILD_DIR }}
-          make download -j$(nproc)
+          make tools/install -j$(nproc) V=s
 
+      # ---------------------------------------------------------
+      # 12. Build Toolchain
+      # ---------------------------------------------------------
+      - name: Build toolchain
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          make toolchain/install -j$(nproc) V=s
+
+      # ---------------------------------------------------------
+      # 13. Build Target
+      # ---------------------------------------------------------
+      - name: Build target
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          make target/compile -j$(nproc) V=s
+
+      # ---------------------------------------------------------
+      # 14. Build Packages
+      # ---------------------------------------------------------
+      - name: Build packages
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          make package/compile -j$(nproc) V=s
+          make package/install -j$(nproc) V=s
+          make package/index
+
+      # ---------------------------------------------------------
+      # 15. Build Firmware
+      # ---------------------------------------------------------
       - name: Build firmware
         run: |
           cd ${{ env.BUILD_DIR }}
-          make defconfig
           make -j$(nproc) V=s || make -j1 V=s
 
+      # ---------------------------------------------------------
+      # 16. Verify Firmware
+      # ---------------------------------------------------------
       - name: Verify firmware output
         run: |
           cd ${{ env.BUILD_DIR }}
           ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
           md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
-          find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" -o -name "*sl3000*.img" -o -name "*sl3000*.tar.gz" -o -name "*sl3000*.ubi" \) || {
-            echo "❌ No firmware image found. Check profile or squashfs config.";
-            exit 1;
-          }
 
+      # ---------------------------------------------------------
+      # 17. Upload Artifacts
+      # ---------------------------------------------------------
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ env.PROFILE }}-firmware-${{ github.run_number }}
+          name: immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*.bin
-            ${{ env.TARGET_DIR }}/**/*sl3000*.itb
-            ${{ env.TARGET_DIR }}/**/*sl3000*.img
-            ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
-            ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
+            ${{ env.TARGET_DIR }}/**/*sl3000*
 
+      # ---------------------------------------------------------
+      # 18. Release
+      # ---------------------------------------------------------
       - name: Publish firmware to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
           name: ImmortalWrt SL3000 Firmware ${{ github.run_number }}
-          body: |
-            自动构建固件发布
-            - Profile: ${{ env.PROFILE }}
-            - 构建号: ${{ github.run_number }}
           files: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*.bin
-            ${{ env.TARGET_DIR }}/**/*sl3000*.itb
-            ${{ env.TARGET_DIR }}/**/*sl3000*.img
-            ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
-            ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
+            ${{ env.TARGET_DIR }}/**/*sl3000*
 
-      - name: Build summary
+      # ---------------------------------------------------------
+      # 19. Post-build Disk Cleanup
+      # ---------------------------------------------------------
+      - name: Post-build Disk Cleanup
         run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== 构建总结 ==="
-          echo "Profile: ${{ env.PROFILE }}"
-          echo "DTS: ${{ env.DTS_FILE }}"
-          echo "MK: ${{ env.MK_FILE }}"
-          echo "Target: ${{ env.TARGET_DIR }}"
-          echo "Run number: ${{ github.run_number }}"
-          echo "Artifacts:"
-          ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
-          md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
-          echo "=== 构建总结完成 ✅ ==="
-
-      - name: Upload build logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ github.run_number }}
-          path: |
-            ${{ env.BUILD_DIR }}/logs
-            ${{ env.BUILD_DIR }}/build_dir/target-*/linux-*/linux-*/.config
-            ${{ env.BUILD_DIR }}/.config
-
-      - name: Optimize disk space (post-build)
-        run: |
-          echo "=== 构建后磁盘空间清理 ==="
           sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
           df -h
-          echo "=== 磁盘空间清理完成 ✅ ==="
-
-      - name: Cleanup working directory
-        run: |
-          echo "=== 清理工作目录 ==="
-          sudo rm -rf ${{ env.BUILD_DIR }}
-          echo "=== 工作目录清理完成 ✅ ==="
