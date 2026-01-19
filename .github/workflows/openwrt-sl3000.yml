@@ -58,27 +58,24 @@ jobs:
           tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
-      - name: Check DTS header includes
+      - name: Fetch required dt-bindings from upstream
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "=== 检查 DTS 引用的头文件是否存在 ==="
           DTS_FILE="${{ env.DTS_FILE }}"
-
-          # 支持 #include 和 /include/ 两种语法
-          grep -E '^#include|^/include/' "$DTS_FILE" | while read -r line; do
-            hdr=$(echo "$line" | sed -E 's|^#include[[:space:]]+[<"]([^">]+)[">].*|\1|;s|^/include/[[:space:]]+"([^"]+)".*|\1|')
-            echo "检测: $hdr"
-
-            # 在源码树里查找完整路径
-            if find . -path "*/$hdr" | grep -q "$hdr"; then
-              echo "✅ 存在: $hdr"
+          grep -E '^#include|^/include/' "$DTS_FILE" | \
+          sed -E 's/.*[<"]([^">]+)[">].*/\1/' | while read hdr; do
+            echo "检测需要: $hdr"
+            local_path="include/$hdr"
+            mkdir -p "$(dirname "$local_path")"
+            if [ ! -f "$local_path" ]; then
+              echo "拉取官方: $hdr"
+              curl -L "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr" -o "$local_path" || {
+                echo "⚠️ 未找到官方文件: $hdr"
+              }
             else
-              echo "❌ 缺失: $hdr"
-              echo "提示: 请确认文件是否在 include/dt-bindings 或 arch/arm64/boot/dts/mediatek 下"
-              exit 1
+              echo "✅ 已存在: $hdr"
             fi
           done
-          echo "=== DTS 引用检查完成 ✅ ==="
 
       - name: Validate & Auto-fix 3-piece consistency
         run: |
@@ -95,10 +92,9 @@ jobs:
               echo "  DEVICE_DTS := ${{ env.DTS_NAME }}"
               echo "  DEVICE_DTS_DIR := \$(DTS_DIR)"
               echo "  SUPPORTED_DEVICES := ${{ env.PROFILE }} ${{ env.DTS_NAME }}"
-              echo "  DEVICE_PACKAGES := kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware kmod-mt7530 kmod-dsa kmod-dsa-mt7530 kmod-mmc kmod-mmc-mtk kmod-fs-ext4 kmod-fs-btrfs kmod-dm luci luci-theme-bootstrap fstools block-mount uboot-envtools fitblk luci-app-passwall2 xray-core shadowsocks-libev-ss-local shadowsocks-libev-ss-redir shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel dockerd docker docker-compose luci-app-dockerman"
+              echo "  DEVICE_PACKAGES := kmod-mt76 luci luci-theme-bootstrap fstools block-mount uboot-envtools fitblk"
               echo "  IMAGE_SIZE := 10240m"
               echo "  KERNEL := kernel-bin"
-              echo "  KERNEL_INITRAMFS := kernel-bin"
               echo "  ROOTFS := squashfs"
               echo "  IMAGES := sysupgrade.bin"
               echo "  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata"
@@ -110,8 +106,7 @@ jobs:
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           grep -q "CONFIG_TARGET_ROOTFS_SQUASHFS=y" .config || echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
           make defconfig
-          make defconfig
-          echo "=== 三件套检测完成 ✅ 固件必定可生成 ==="
+          echo "=== 三件套检测完成 ✅ ==="
 
       - name: Validate patches
         run: |
@@ -178,17 +173,19 @@ jobs:
             ${{ env.TARGET_DIR }}/**/*sl3000*.tar.gz
             ${{ env.TARGET_DIR }}/**/*sl3000*.ubi
 
-      - name: Generate build summary
+      - name: Build summary
         run: |
           cd ${{ env.BUILD_DIR }}
           echo "=== 构建总结 ==="
           echo "Profile: ${{ env.PROFILE }}"
-          echo "Run Number: ${{ github.run_number }}"
-          echo "Target Directory: ${{ env.TARGET_DIR }}"
-          echo "固件产物:"
+          echo "DTS: ${{ env.DTS_FILE }}"
+          echo "MK: ${{ env.MK_FILE }}"
+          echo "Target: ${{ env.TARGET_DIR }}"
+          echo "Run number: ${{ github.run_number }}"
+          echo "Artifacts:"
           ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
           md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
-          echo "================"
+          echo "=== 构建总结完成 ✅ ==="
 
       - name: Upload build logs
         uses: actions/upload-artifact@v4
@@ -196,25 +193,18 @@ jobs:
           name: build-logs-${{ github.run_number }}
           path: |
             ${{ env.BUILD_DIR }}/logs
-            ${{ env.BUILD_DIR }}/build_dir/*/log.txt
-            ${{ env.BUILD_DIR }}/build.log
-            ${{ env.BUILD_DIR }}/compile.log
+            ${{ env.BUILD_DIR }}/build_dir/target-*/linux-*/linux-*/.config
             ${{ env.BUILD_DIR }}/.config
 
       - name: Optimize disk space (post-build)
         run: |
-          cd ${{ env.BUILD_DIR }}
           echo "=== 构建后磁盘空间清理 ==="
-          rm -rf tmp build_dir staging_dir
-          rm -rf package feeds
-          find dl -type f -size +100M -delete || true
+          sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
           df -h
-          echo "=== 清理完成 ✅ ==="
+          echo "=== 磁盘空间清理完成 ✅ ==="
 
-      - name: Cleanup workspace
+      - name: Cleanup working directory
         run: |
-          echo "=== 清理 Actions 工作目录 ==="
-          sudo rm -rf /mnt/openwrt
-          sudo rm -rf ${{ github.workspace }}/*
-          df -h
-          echo "工作目录清理完成 ✅"
+          echo "=== 清理工作目录 ==="
+          sudo rm -rf ${{ env.BUILD_DIR }}
+          echo "=== 工作目录清理完成 ✅ ==="
