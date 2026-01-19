@@ -3,9 +3,13 @@
 /* 基础 SoC 定义 */
 #include "mt7981.dtsi"
 
-/* GPIO/按键/LED 宏定义 */
+/* GPIO 宏定义 */
 #include <dt-bindings/gpio/gpio.h>
+
+/* 按键宏定义（Linux 6.x 使用这个） */
 #include <dt-bindings/input/input-event-codes.h>
+
+/* LED 宏定义（Linux 6.x 使用这个） */
 #include <dt-bindings/leds/leds.h>
 
 / {
