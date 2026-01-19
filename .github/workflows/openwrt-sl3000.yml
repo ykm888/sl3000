@@ -46,21 +46,28 @@ jobs:
       - name: Apply DTS & MK Configuration
         run: |
           cd ${{ env.BUILD_DIR }}
-          # 预先清理 DTS 潜在问题
+          # Clean and Fix DTS
           if [ -f "${{ env.DTS_FILE }}" ]; then
             sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}"
             sed -i 's/\r$//' "${{ env.DTS_FILE }}"
           fi
           
-          # 核心修复：使用 GCC 预处理器处理 DTS 的 #include
+          # Fix include paths for GCC preprocessor
+          # We search for the dt-bindings directory to ensure we have the right path
+          BINDINGS_PATH=$(find target/linux/ -name "dt-bindings" -type d -print -quit | xargs dirname)
+          echo "Found bindings parent path: $BINDINGS_PATH"
+          
+          # Check DTS Syntax using C preprocessor with expanded include paths
           gcc -I target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/ \
+              -I $BINDINGS_PATH \
               -I include/ \
               -I scripts/dtc/include-prefixes/ \
               -E -p -nostdinc -x assembler-with-cpp "${{ env.DTS_FILE }}" | dtc -I dts -O dtb -o /tmp/test.dtb -
           
-          # 同步设备定义
+          # Sync Makefile (DTS_MK)
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           
+          # Sync Device Definition (MK_FILE)
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
               echo ""
@@ -100,7 +107,7 @@ jobs:
       - name: Build Firmware
         run: |
           cd ${{ env.BUILD_DIR }}
-          # 强制注入目标设备配置
+          # Inject target configuration
           [ -f .config ] || touch .config
           sed -i '/CONFIG_TARGET_mediatek/d' .config
           sed -i '/CONFIG_TARGET_mediatek_filogic/d' .config
@@ -114,6 +121,7 @@ jobs:
       - name: Verify Output
         run: |
           cd ${{ env.BUILD_DIR }}
+          echo "Build finished. Checking outputs..."
           ls -lh ${{ env.TARGET_DIR }}
           find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" \) || {
             echo "Error: No firmware images found."
