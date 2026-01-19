@@ -18,6 +18,7 @@ env:
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   CCACHE_DIR: ~/.ccache
+  BUILD_DIR: /mnt/openwrt   # 👈 构建目录迁移到 /mnt
 
 jobs:
   check-dts:
@@ -28,11 +29,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Move source to /mnt
+        run: |
+          sudo mkdir -p ${{ env.BUILD_DIR }}
+          sudo rsync -a --delete . ${{ env.BUILD_DIR }}
+          cd ${{ env.BUILD_DIR }}
+
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler
 
       - name: Clean DTS file
         run: |
+          cd ${{ env.BUILD_DIR }}
           test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS not found"; exit 1; }
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
           sed -i 's/\r$//' "${{ env.DTS_FILE }}" || true
@@ -40,10 +48,13 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       - name: Check DTS syntax
-        run: dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          dtc -I dts -O dtb "${{ env.DTS_FILE }}" -o /tmp/test.dtb
 
       - name: Validate & Auto-fix 3-piece consistency
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "=== 三件套检测开始 ==="
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
@@ -68,6 +79,7 @@ jobs:
 
       - name: Clean invalid patches
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "=== 检查并删除失效补丁 ==="
           for p in target/linux/mediatek/patches-6.12/*.patch; do
             if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
@@ -86,8 +98,15 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Move source to /mnt
+        run: |
+          sudo mkdir -p ${{ env.BUILD_DIR }}
+          sudo rsync -a --delete . ${{ env.BUILD_DIR }}
+          cd ${{ env.BUILD_DIR }}
+
       - name: Clean invalid patches (build stage)
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "=== 再次检查并删除失效补丁 ==="
           for p in target/linux/mediatek/patches-6.12/*.patch; do
             if ! patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
@@ -104,69 +123,21 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      - name: Cache feeds
-        uses: actions/cache@v4
-        with:
-          path: feeds
-          key: feeds-${{ hashFiles('feeds.conf.default') }}
-          restore-keys: |
-            feeds-
-
-      - name: Cache dl
-        uses: actions/cache@v4
-        with:
-          path: dl
-          key: dl-${{ hashFiles('feeds.conf.default') }}
-          restore-keys: |
-            dl-
-
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-${{ env.PROFILE }}
-          restore-keys: |
-            ccache-
-
-      - name: Cache toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            staging_dir/toolchain-*
-            staging_dir/host
-            build_dir/toolchain-*
-            build_dir/host
-          key: toolchain-${{ hashFiles('feeds.conf.default', '.config') }}
-          restore-keys: |
-            toolchain-
-
-      - name: Configure ccache
-        run: |
-          ccache -M 2G
-          ccache -s
-
       - name: Setup feeds
         run: |
+          cd ${{ env.BUILD_DIR }}
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build tools
-        run: make tools/install -j$(nproc) V=s
-
-      - name: Build toolchain
-        run: make toolchain/install -j$(nproc) V=s
-
-      - name: Build target
-        run: make target/compile -j$(nproc) V=s
-
-      - name: Build packages
-        run: make package/compile -j$(nproc) V=s IGNORE_ERRORS=m
-
       - name: Build firmware
-        run: make -j$(nproc) V=s
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          make defconfig
+          make -j$(nproc) V=s || make -j1 V=s
 
       - name: Verify firmware output
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "Checking firmware output..."
           ls -lh ${{ env.TARGET_DIR }}
           find ${{ env.TARGET_DIR }} -type f \( -name "*sl3000*.bin" -o -name "*sl3000*.itb" -o -name "*sl3000*.img" -o -name "*sl3000*.tar.gz" -o -name "*sl3000*.ubi" \) || {
@@ -203,6 +174,7 @@ jobs:
 
       - name: Optimize disk space
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "Cleaning up unnecessary files..."
           rm -rf tmp
           rm -rf build_dir/target-*
@@ -213,6 +185,7 @@ jobs:
 
       - name: List firmware files
         run: |
+          cd ${{ env.BUILD_DIR }}
           echo "=== 固件产物列表 ==="
           ls -lh ${{ env.TARGET_DIR }}
           echo "==================="
