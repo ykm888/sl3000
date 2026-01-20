@@ -1,28 +1,29 @@
 /dts-v1/;
 
-/* 基础 SoC 定义 */
+/* 基础 SoC 定义（ImmortalWrt 6.12 官方） */
 #include "mt7981b.dtsi"
 
 /* GPIO 宏定义 */
 #include <dt-bindings/gpio/gpio.h>
 
-/* 按键宏定义（Linux 6.x 使用这个） */
+/* 按键宏定义 */
 #include <dt-bindings/input/input-event-codes.h>
 
-/* LED 宏定义（Linux 6.x 使用这个） */
+/* LED 宏定义 */
 #include <dt-bindings/leds/leds.h>
 
-/ {
+ / {
     model = "SL-3000 (AX3000) eMMC Board";
-    compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
 
     aliases {
+        serial0 = &uart0;
         label-mac-device = &gmac0;
+
         led-boot = &led_status_green;
         led-failsafe = &led_status_red;
         led-running = &led_status_green;
         led-upgrade = &led_status_blue;
-        serial0 = &uart0;
     };
 
     chosen {
@@ -32,16 +33,18 @@
 
     memory@40000000 {
         device_type = "memory";
-        reg = <0 0x40000000 0 0x40000000>; /* 1GB RAM */
+        reg = <0 0x40000000 0 0x40000000>; /* 1GB */
     };
 
     keys {
         compatible = "gpio-keys";
+
         reset {
             label = "reset";
             gpios = <&pio 1 GPIO_ACTIVE_LOW>;
             linux,code = <KEY_RESTART>;
         };
+
         wps {
             label = "wps";
             gpios = <&pio 0 GPIO_ACTIVE_LOW>;
@@ -51,16 +54,19 @@
 
     leds {
         compatible = "gpio-leds";
+
         led_status_green: status_green {
             function = LED_FUNCTION_STATUS;
             color = <LED_COLOR_ID_GREEN>;
             gpios = <&pio 9 GPIO_ACTIVE_LOW>;
         };
+
         led_status_red: status_red {
             function = LED_FUNCTION_FAULT;
             color = <LED_COLOR_ID_RED>;
             gpios = <&pio 8 GPIO_ACTIVE_LOW>;
         };
+
         led_status_blue: status_blue {
             function = LED_FUNCTION_WLAN;
             color = <LED_COLOR_ID_BLUE>;
@@ -69,91 +75,148 @@
     };
 };
 
-&uart0 { status = "okay"; };
-&watchdog { status = "okay"; };
+/* UART */
+&uart0 {
+    status = "okay";
+};
 
+/* Watchdog */
+&watchdog {
+    status = "okay";
+};
+
+/* Ethernet + MT7531 Switch */
 &eth {
     status = "okay";
+
     gmac0: mac@0 {
         compatible = "mediatek,eth-mac";
         reg = <0>;
         phy-mode = "2500base-x";
-        fixed-link { speed = <2500>; full-duplex; pause; };
+
+        fixed-link {
+            speed = <2500>;
+            full-duplex;
+            pause;
+        };
     };
+
     mdio-bus {
         #address-cells = <1>;
         #size-cells = <0>;
         status = "okay";
+
         switch@1f {
             compatible = "mediatek,mt7531";
             reg = <0x1f>;
             reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
+
             ports {
                 #address-cells = <1>;
                 #size-cells = <0>;
+
                 port@0 { reg = <0>; label = "lan1"; };
                 port@1 { reg = <1>; label = "lan2"; };
                 port@2 { reg = <2>; label = "lan3"; };
                 port@3 { reg = <3>; label = "lan4"; };
+
                 port@6 {
                     reg = <6>;
                     label = "cpu";
                     ethernet = <&gmac0>;
                     phy-mode = "2500base-x";
-                    fixed-link { speed = <2500>; full-duplex; pause; };
+
+                    fixed-link {
+                        speed = <2500>;
+                        full-duplex;
+                        pause;
+                    };
                 };
             };
         };
     };
 };
 
+/* eMMC */
 &mmc0 {
     status = "okay";
+    bus-width = <8>;
+    max-frequency = <200000000>;
+
     pinctrl-names = "default", "state_uhs";
     pinctrl-0 = <&mmc0_pins_default>;
     pinctrl-1 = <&mmc0_pins_uhs>;
-    bus-width = <8>;
-    max-frequency = <200000000>;
+
     cap-mmc-highspeed;
     mmc-hs200-1_8v;
     mmc-hs400-1_8v;
+
     vmmc-supply = <&reg_3p3v>;
     vqmmc-supply = <&reg_1p8v>;
+
     non-removable;
 };
 
+/* SPI NOR */
 &spi0 {
     status = "okay";
+
     flash@0 {
         compatible = "jedec,spi-nor";
         reg = <0>;
         spi-max-frequency = <50000000>;
+
         partitions {
             compatible = "fixed-partitions";
             #address-cells = <1>;
             #size-cells = <1>;
-            partition@0 { label = "bl2"; reg = <0x00000 0x0100000>; read-only; };
-            partition@100000 { label = "u-boot-env"; reg = <0x100000 0x0080000>; };
-            partition@180000 { label = "factory"; reg = <0x180000 0x0200000>; read-only; };
-            partition@380000 { label = "fip"; reg = <0x380000 0x0200000>; read-only; };
-            partition@580000 { label = "recovery"; reg = <0x580000 0x02000000>; }; /* 32MB */
+
+            partition@0 {
+                label = "bl2";
+                reg = <0x00000 0x0100000>;
+                read-only;
+            };
+
+            partition@100000 {
+                label = "u-boot-env";
+                reg = <0x100000 0x0080000>;
+            };
+
+            partition@180000 {
+                label = "factory";
+                reg = <0x180000 0x0200000>;
+                read-only;
+            };
+
+            partition@380000 {
+                label = "fip";
+                reg = <0x380000 0x0200000>;
+                read-only;
+            };
+
+            partition@580000 {
+                label = "recovery";
+                reg = <0x580000 0x02000000>; /* 32MB */
+            };
         };
     };
 };
 
+/* WiFi */
 &wmac {
     status = "okay";
     mediatek,mtd-eeprom = <&factory 0x0000>;
 };
 
+/* Pinmux */
 &pio {
     mmc0_pins_default: mmc0-pins-default {
         mux { function = "flash"; groups = "emmc_45"; };
         conf { groups = "emmc_45"; drive-strength = <MTK_DRIVE_8mA>; };
     };
+
     mmc0_pins_uhs: mmc0-pins-uhs {
         mux { function = "flash"; groups = "emmc_45"; };
         conf { groups = "emmc_45"; drive-strength = <MTK_DRIVE_8mA>; };
     };
 };
-
