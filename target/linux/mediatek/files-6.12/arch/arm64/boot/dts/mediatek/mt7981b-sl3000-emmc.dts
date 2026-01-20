@@ -42,26 +42,24 @@
 	};
 
 	/* ===========================
-	 * reserved-memory（WED / WoCPU）
+	 * CPU OPP 表（本地定义）
 	 * =========================== */
-	reserved-memory {
-		#address-cells = <2>;
-		#size-cells = <2>;
-		ranges;
+	cpu_opp_table: cpu-opp-table {
+		compatible = "operating-points-v2";
 
-		wifi_emi: wifi@47c80000 {
-			reg = <0 0x47c80000 0 0x100000>;
-			no-map;
+		opp-650000000 {
+			opp-hz = /bits/ 64 <650000000>;
+			opp-microvolt = <800000>;
 		};
 
-		wo_emi0: wo-emi@47d80000 {
-			reg = <0 0x47d80000 0 0x40000>;
-			no-map;
+		opp-850000000 {
+			opp-hz = /bits/ 64 <850000000>;
+			opp-microvolt = <850000>;
 		};
 
-		wo_data: wo-data@47dc0000 {
-			reg = <0 0x47dc0000 0 0x240000>;
-			no-map;
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <900000>;
 		};
 	};
 
@@ -135,10 +133,10 @@
 	};
 
 	/* ===========================
-	 * 别名
+	 * 别名（路径引用）
 	 * =========================== */
 	aliases {
-		serial0 = &uart0;
+		serial0 = &{/soc/serial@11002000};
 		label-mac-device = &gmac0;
 
 		led-boot = &led_status_green;
@@ -154,65 +152,46 @@
 };
 
 /* ===========================
- * CPU / OPP / Thermal（极限优化）
+ * reserved-memory（扩展 SoC 节点）
  * =========================== */
-&cpu0 {
+&reserved_memory {
+	wifi_emi: wifi@47c80000 {
+		reg = <0 0x47c80000 0 0x100000>;
+		no-map;
+	};
+
+	wo_emi0: wo-emi@47d80000 {
+		reg = <0 0x47d80000 0 0x40000>;
+		no-map;
+	};
+
+	wo_data: wo-data@47dc0000 {
+		reg = <0 0x47dc0000 0 0x240000>;
+		no-map;
+	};
+};
+
+/* ===========================
+ * CPU / Thermal（路径引用）
+ * =========================== */
+&{/cpus/cpu@0} {
 	status = "okay";
 	operating-points-v2 = <&cpu_opp_table>;
 };
 
-&cpu_opp_table {
-	opp-650000000 {
-		opp-hz = /bits/ 64 <650000000>;
-		opp-microvolt = <800000>;
-	};
-
-	opp-850000000 {
-		opp-hz = /bits/ 64 <850000000>;
-		opp-microvolt = <850000>;
-	};
-
-	opp-1000000000 {
-		opp-hz = /bits/ 64 <1000000000>;
-		opp-microvolt = <900000>;
-	};
-};
-
-&thermal {
-	polling-delay-passive = <1000>;
-	polling-delay = <2000>;
-
-	trips {
-		cpu_alert: cpu-alert {
-			temperature = <75000>;
-			hysteresis = <2000>;
-			type = "passive";
-		};
-
-		cpu_crit: cpu-crit {
-			temperature = <90000>;
-			hysteresis = <2000>;
-			type = "critical";
-		};
-	};
-
-	cooling-maps {
-		map0 {
-			trip = <&cpu_alert>;
-			cooling-device = <&cpu0 0 2>;
-		};
-	};
+&{/thermal-zones} {
+	/* thermal-zones 是容器节点，不覆盖子节点 */
 };
 
 /* ===========================
- * UART
+ * UART（路径引用）
  * =========================== */
-&uart0 {
+&{/soc/serial@11002000} {
 	status = "okay";
 };
 
 /* ===========================
- * Watchdog（工程级）
+ * Watchdog（SoC 自带 label）
  * =========================== */
 &watchdog {
 	status = "okay";
@@ -220,16 +199,16 @@
 };
 
 /* ===========================
- * RNG
+ * RNG（路径引用）
  * =========================== */
-&rng {
+&{/soc/rng@1020f000} {
 	status = "okay";
 };
 
 /* ===========================
- * Ethernet + MT7531 + WED（极限优化）
+ * Ethernet + MT7531 + WED（路径引用）
  * =========================== */
-&eth {
+&{/soc/eth@15100000} {
 	status = "okay";
 	mediatek,eth-wed-enable = <1>;
 
@@ -281,9 +260,9 @@
 };
 
 /* ===========================
- * eMMC（HS200 / HS400）
+ * eMMC（路径引用）
  * =========================== */
-&mmc0 {
+&{/soc/mmc@11230000} {
 	status = "okay";
 	bus-width = <8>;
 	max-frequency = <200000000>;
@@ -303,9 +282,9 @@
 };
 
 /* ===========================
- * SPI NOR（完整分区）
+ * SPI NOR（路径引用）
  * =========================== */
-&spi0 {
+&{/soc/spi@1100a000} {
 	status = "okay";
 	num-cs = <1>;
 	pinctrl-names = "default";
@@ -352,9 +331,9 @@
 };
 
 /* ===========================
- * WiFi（EEPROM + 校验）
+ * WiFi（路径引用）
  * =========================== */
-&wmac {
+&{/soc/wifi@18000000} {
 	status = "okay";
 	mediatek,mtd-eeprom = <&factory 0x0000>;
 	mediatek,eeprom-checksum = <1>;
