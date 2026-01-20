@@ -5,24 +5,11 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/image.mk
 
-# DTS 统一指向内核源码树
+# DTS 统一指向内核源码树（ImmortalWrt 6.12 必须）
 DTS_DIR := $(LINUX_DIR)/arch/arm64/boot/dts/mediatek
 
 # ===========================
-# 官方设备定义（结构保留）
-# ===========================
-
-# 以下为官方设备占位符（不复制内容）
-# define Device/mt7981-official-device-1
-# define Device/mt7981-official-device-2
-# define Device/mt7981-official-device-3
-# ...
-# TARGET_DEVICES += mt7981-official-device-1
-# TARGET_DEVICES += mt7981-official-device-2
-# TARGET_DEVICES += mt7981-official-device-3
-
-# ===========================
-# SL3000 eMMC 官方对齐定义
+# SL3000 eMMC — Flagship Edition
 # ===========================
 
 define Device/sl3000-emmc
@@ -37,26 +24,45 @@ define Device/sl3000-emmc
   # sysupgrade 兼容 ID
   SUPPORTED_DEVICES := sl3000-emmc mt7981b-sl3000-emmc
 
-  # 完整驱动 + 网络 + 存储 + Docker + Passwall2
+  # ===========================
+  # 旗舰级驱动链
+  # ===========================
   DEVICE_PACKAGES := \
     kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 \
-    kmod-mmc kmod-mmc-mtk kmod-fs-ext4 kmod-fs-btrfs kmod-dm \
-    luci luci-theme-bootstrap fstools block-mount uboot-envtools fitblk \
+    kmod-mtk-hnat kmod-mt7981-wed \
+    kmod-usb3 kmod-usb-storage kmod-usb-storage-uas \
+    kmod-mmc kmod-mmc-mtk \
+    kmod-fs-ext4 kmod-fs-btrfs kmod-dm \
+    blockd fstrim fitblk fstools block-mount uboot-envtools \
+    luci luci-theme-bootstrap \
+    dockerd docker docker-compose luci-app-dockerman \
     luci-app-passwall2 xray-core \
     shadowsocks-libev-ss-local shadowsocks-libev-ss-redir \
-    shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel \
-    dockerd docker docker-compose luci-app-dockerman
+    shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel
 
-  # 10GB 镜像空间（适配 128GB eMMC）
+  # ===========================
+  # 镜像大小（适配大 eMMC）
+  # ===========================
   IMAGE_SIZE := 10240m
 
+  # ===========================
+  # Kernel / Rootfs
+  # ===========================
   KERNEL := kernel-bin
   KERNEL_INITRAMFS := kernel-bin
   ROOTFS := squashfs
 
-  IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
+  # ===========================
+  # 镜像格式（官方结构）
+  # ===========================
+  IMAGES := sysupgrade.bin initramfs-recovery.itb
+
+  IMAGE/sysupgrade.bin := \
+    append-kernel | append-rootfs | pad-rootfs | append-metadata
+
+  IMAGE/initramfs-recovery.itb := \
+    append-kernel | pad-to 64k | append-dtb | uImage none
 endef
 
 TARGET_DEVICES += sl3000-emmc
@@ -64,5 +70,4 @@ TARGET_DEVICES += sl3000-emmc
 # ===========================
 # 构建镜像
 # ===========================
-
 $(eval $(call BuildImage))
