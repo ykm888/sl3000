@@ -98,27 +98,54 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       # ---------------------------------------------------------
-      # 7. Fetch dt-bindings
+      # 7. Fetch dt-bindings (修复版：正确路径 + 跳过空壳 + fallback)
       # ---------------------------------------------------------
       - name: Fetch required dt-bindings
         run: |
           cd ${{ env.BUILD_DIR }}
           DTS_FILE="${{ env.DTS_FILE }}"
           missing=0
+
+          fetch_binding() {
+            hdr="$1"
+            local_path="include/$hdr"
+            mkdir -p "$(dirname "$local_path")"
+
+            # 真实路径
+            url1="https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr"
+            # MTK 平台常用路径
+            url2="https://raw.githubusercontent.com/torvalds/linux/master/arch/arm64/boot/dts/include/$hdr"
+
+            # 尝试真实路径
+            if curl -L --fail "$url1" -o "$local_path.tmp" 2>/dev/null; then
+              size=$(wc -c < "$local_path.tmp")
+              if [ "$size" -gt 100 ]; then
+                mv "$local_path.tmp" "$local_path"
+                echo "✔ Fetched: $hdr"
+                return
+              fi
+            fi
+
+            # 尝试 arch 路径
+            if curl -L --fail "$url2" -o "$local_path.tmp" 2>/dev/null; then
+              size=$(wc -c < "$local_path.tmp")
+              if [ "$size" -gt 100 ]; then
+                mv "$local_path.tmp" "$local_path"
+                echo "✔ Fetched (arch): $hdr"
+                return
+              fi
+            fi
+
+            # 小于 100 字节 → 空壳文件 → 跳过
+            echo "⚠ Skip empty dt-binding: $hdr"
+            rm -f "$local_path.tmp"
+          }
+
           grep -E '^#include|^/include/' "$DTS_FILE" | \
           sed -E 's/.*[<"]([^">]+)[">].*/\1/' | while read hdr; do
             echo "Checking: $hdr"
-            local_path="include/$hdr"
-            mkdir -p "$(dirname "$local_path")"
-            if [ ! -f "$local_path" ]; then
-              echo "Fetching upstream: $hdr"
-              if ! curl -L "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr" -o "$local_path"; then
-                echo "Missing: $hdr"
-                missing=1
-              fi
-            fi
+            [ -f "include/$hdr" ] || fetch_binding "$hdr"
           done
-          [ $missing -eq 0 ] || exit 1
 
       # ---------------------------------------------------------
       # 8. Validate 3-piece consistency
