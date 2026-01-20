@@ -1,17 +1,17 @@
 /dts-v1/;
 
-/* ===== 正确的 dt-bindings（适配 Linux 6.12） ===== */
+/* ===== dt-bindings（Linux 6.12 官方路径） ===== */
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/mt65xx.h>
 
-/* ===== 必须包含 SoC dtsi（提供 uart0/eth/mmc0/spi0/wmac/pio 等基础节点）===== */
+/* ===== SoC 基础层 ===== */
 #include "mt7981b.dtsi"
 
 / {
-	model = "SL-3000 eMMC Board";
+	model = "SL-3000 eMMC Board (Ultimate Edition)";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
 	/* ===========================
@@ -23,7 +23,7 @@
 	};
 
 	/* ===========================
-	 * 电源（WiFi/eMMC 必需）
+	 * 电源（WiFi / eMMC / SPI NOR）
 	 * =========================== */
 	reg_3p3v: regulator-3p3v {
 		compatible = "regulator-fixed";
@@ -42,7 +42,7 @@
 	};
 
 	/* ===========================
-	 * reserved-memory（WED/WiFi）
+	 * reserved-memory（WED / WoCPU）
 	 * =========================== */
 	reserved-memory {
 		#address-cells = <2>;
@@ -66,7 +66,7 @@
 	};
 
 	/* ===========================
-	 * LED
+	 * LED（带触发器）
 	 * =========================== */
 	leds {
 		compatible = "gpio-leds";
@@ -75,23 +75,26 @@
 			function = LED_FUNCTION_STATUS;
 			color = <LED_COLOR_ID_GREEN>;
 			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "heartbeat";
 		};
 
 		led_status_red: status_red {
 			function = LED_FUNCTION_FAULT;
 			color = <LED_COLOR_ID_RED>;
 			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "panic";
 		};
 
 		led_status_blue: status_blue {
 			function = LED_FUNCTION_WLAN;
 			color = <LED_COLOR_ID_BLUE>;
 			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "phy0tpt";
 		};
 	};
 
 	/* ===========================
-	 * 按键
+	 * 按键（带 debounce）
 	 * =========================== */
 	keys {
 		compatible = "gpio-keys";
@@ -100,12 +103,34 @@
 			label = "reset";
 			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_RESTART>;
+			debounce-interval = <10>;
 		};
 
 		wps {
 			label = "wps";
 			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
 			linux,code = <KEY_WPS_BUTTON>;
+			debounce-interval = <10>;
+		};
+	};
+
+	/* ===========================
+	 * GPIO 导出（调试）
+	 * =========================== */
+	gpio-export {
+		compatible = "gpio-export";
+		#size-cells = <0>;
+
+		gpio_debug_2 {
+			gpio-export,name = "gpio2-debug";
+			gpio-export,output = <0>;
+			gpios = <&pio 2 GPIO_ACTIVE_LOW>;
+		};
+
+		gpio_debug_3 {
+			gpio-export,name = "gpio3-debug";
+			gpio-export,output = <0>;
+			gpios = <&pio 3 GPIO_ACTIVE_LOW>;
 		};
 	};
 
@@ -129,6 +154,57 @@
 };
 
 /* ===========================
+ * CPU / OPP / Thermal（极限优化）
+ * =========================== */
+&cpu0 {
+	status = "okay";
+	operating-points-v2 = <&cpu_opp_table>;
+};
+
+&cpu_opp_table {
+	opp-650000000 {
+		opp-hz = /bits/ 64 <650000000>;
+		opp-microvolt = <800000>;
+	};
+
+	opp-850000000 {
+		opp-hz = /bits/ 64 <850000000>;
+		opp-microvolt = <850000>;
+	};
+
+	opp-1000000000 {
+		opp-hz = /bits/ 64 <1000000000>;
+		opp-microvolt = <900000>;
+	};
+};
+
+&thermal {
+	polling-delay-passive = <1000>;
+	polling-delay = <2000>;
+
+	trips {
+		cpu_alert: cpu-alert {
+			temperature = <75000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+
+		cpu_crit: cpu-crit {
+			temperature = <90000>;
+			hysteresis = <2000>;
+			type = "critical";
+		};
+	};
+
+	cooling-maps {
+		map0 {
+			trip = <&cpu_alert>;
+			cooling-device = <&cpu0 0 2>;
+		};
+	};
+};
+
+/* ===========================
  * UART
  * =========================== */
 &uart0 {
@@ -136,10 +212,11 @@
 };
 
 /* ===========================
- * Watchdog
+ * Watchdog（工程级）
  * =========================== */
 &watchdog {
 	status = "okay";
+	timeout-sec = <30>;
 };
 
 /* ===========================
@@ -150,10 +227,11 @@
 };
 
 /* ===========================
- * Ethernet + MT7531 Switch
+ * Ethernet + MT7531 + WED（极限优化）
  * =========================== */
 &eth {
 	status = "okay";
+	mediatek,eth-wed-enable = <1>;
 
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
@@ -203,7 +281,7 @@
 };
 
 /* ===========================
- * eMMC
+ * eMMC（HS200 / HS400）
  * =========================== */
 &mmc0 {
 	status = "okay";
@@ -225,10 +303,12 @@
 };
 
 /* ===========================
- * SPI NOR
+ * SPI NOR（完整分区）
  * =========================== */
 &spi0 {
 	status = "okay";
+	num-cs = <1>;
+	pinctrl-names = "default";
 
 	flash@0 {
 		compatible = "jedec,spi-nor";
@@ -272,22 +352,29 @@
 };
 
 /* ===========================
- * WiFi
+ * WiFi（EEPROM + 校验）
  * =========================== */
 &wmac {
 	status = "okay";
 	mediatek,mtd-eeprom = <&factory 0x0000>;
+	mediatek,eeprom-checksum = <1>;
 };
 
 /* ===========================
- * Pinmux
+ * Pinmux（eMMC）
  * =========================== */
 &pio {
 	mmc0_pins_default: mmc0-pins-default {
-		mux { function = "flash"; groups = "emmc_45"; };
+		mux {
+			function = "flash";
+			groups = "emmc_45";
+		};
 	};
 
 	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux { function = "flash"; groups = "emmc_45"; };
+		mux {
+			function = "flash";
+			groups = "emmc_45";
+		};
 	};
 };
