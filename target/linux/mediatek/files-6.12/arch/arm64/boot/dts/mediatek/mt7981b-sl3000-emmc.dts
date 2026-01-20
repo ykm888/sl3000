@@ -1,20 +1,32 @@
 /dts-v1/;
 
-/* 基础 SoC 定义（ImmortalWrt 6.12 官方） */
-#include "mt7981.dtsi"
-
-/* GPIO 宏定义 */
+/* 只保留 dt-bindings（SoC dtsi 由 kernel 自动包含） */
 #include <dt-bindings/gpio/gpio.h>
-
-/* 按键宏定义 */
 #include <dt-bindings/input/input-event-codes.h>
-
-/* LED 宏定义 */
 #include <dt-bindings/leds/leds.h>
 
  / {
     model = "SL-3000 (AX3000) eMMC Board";
-    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+
+    /* ===========================
+     * 必须补的电源节点（eMMC 依赖）
+     * =========================== */
+    reg_3p3v: regulator-3p3v {
+        compatible = "regulator-fixed";
+        regulator-name = "fixed-3.3v";
+        regulator-min-microvolt = <3300000>;
+        regulator-max-microvolt = <3300000>;
+        regulator-always-on;
+    };
+
+    reg_1p8v: regulator-1p8v {
+        compatible = "regulator-fixed";
+        regulator-name = "fixed-1.8v";
+        regulator-min-microvolt = <1800000>;
+        regulator-max-microvolt = <1800000>;
+        regulator-always-on;
+    };
 
     aliases {
         serial0 = &uart0;
@@ -182,7 +194,8 @@
                 reg = <0x100000 0x0080000>;
             };
 
-            partition@180000 {
+            /* 必须补 phandle，否则 WiFi EEPROM 无法加载 */
+            factory: partition@180000 {
                 label = "factory";
                 reg = <0x180000 0x0200000>;
                 read-only;
