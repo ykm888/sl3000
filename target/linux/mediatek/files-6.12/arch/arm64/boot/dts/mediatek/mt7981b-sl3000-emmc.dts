@@ -7,6 +7,9 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/mt65xx.h>
 
+/* ===== 必须包含 SoC dtsi（提供 uart0/eth/mmc0/spi0/wmac/pio 等基础节点）===== */
+#include "mt7981b.dtsi"
+
 / {
 	model = "SL-3000 eMMC Board";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
