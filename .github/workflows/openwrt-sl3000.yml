@@ -9,8 +9,11 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
+
+  # 默认路径（旧路径，自动修复会覆盖）
   DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
   DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
+
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: /mnt/openwrt
@@ -21,16 +24,52 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # ---------------------------------------------------------
-      # 0. Checkout
-      # ---------------------------------------------------------
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       # ---------------------------------------------------------
-      # 1. Pre-build Disk Optimization
+      # 自动检测 + 自动修复 DTS 路径（核心增强）
+      # ---------------------------------------------------------
+      - name: Auto Detect & Fix DTS Path
+        run: |
+          echo "=== Auto Detecting DTS Path ==="
+
+          # 正确路径（filogic）
+          CORRECT_DTS="target/linux/mediatek/files-6.12/filogic/arch/arm64/boot/dts/mediatek/${{ env.DTS_NAME }}.dts"
+          CORRECT_DTS_MK="target/linux/mediatek/files-6.12/filogic/arch/arm64/boot/dts/mediatek/Makefile"
+
+          # 旧路径（错误路径）
+          OLD_DTS="${{ env.DTS_FILE }}"
+          OLD_DTS_MK="${{ env.DTS_MK }}"
+
+          # 自动修复 DTS_FILE
+          if [ -f "$CORRECT_DTS" ]; then
+            echo "Found correct DTS at: $CORRECT_DTS"
+            echo "DTS_FILE=$CORRECT_DTS" >> $GITHUB_ENV
+          else
+            echo "ERROR: DTS not found at correct path!"
+            echo "Expected: $CORRECT_DTS"
+            exit 1
+          fi
+
+          # 自动修复 DTS_MK
+          if [ -f "$CORRECT_DTS_MK" ]; then
+            echo "Found correct DTS_MK at: $CORRECT_DTS_MK"
+            echo "DTS_MK=$CORRECT_DTS_MK" >> $GITHUB_ENV
+          else
+            echo "ERROR: DTS_MK not found at correct path!"
+            echo "Expected: $CORRECT_DTS_MK"
+            exit 1
+          fi
+
+          echo "=== DTS Path Auto-Fix Completed ==="
+          echo "Final DTS_FILE: $CORRECT_DTS"
+          echo "Final DTS_MK:   $CORRECT_DTS_MK"
+
+      # ---------------------------------------------------------
+      # Pre-build Disk Optimization
       # ---------------------------------------------------------
       - name: Pre-build Disk Optimization
         run: |
@@ -39,18 +78,12 @@ jobs:
           sudo docker system prune -af || true
           df -h
 
-      # ---------------------------------------------------------
-      # 2. Move source to /mnt
-      # ---------------------------------------------------------
       - name: Move source to /mnt
         run: |
           sudo mkdir -p ${{ env.BUILD_DIR }}
           sudo rsync -a --delete . ${{ env.BUILD_DIR }}
           sudo chown -R $USER:$USER ${{ env.BUILD_DIR }}
 
-      # ---------------------------------------------------------
-      # 3. Install Dependencies
-      # ---------------------------------------------------------
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -58,9 +91,6 @@ jobs:
             libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
             ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
 
-      # ---------------------------------------------------------
-      # 4. Setup CCache
-      # ---------------------------------------------------------
       - name: Setup ccache
         run: |
           sudo mkdir -p ${{ env.CCACHE_DIR }}
@@ -70,9 +100,6 @@ jobs:
           ccache -z
           echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
 
-      # ---------------------------------------------------------
-      # 5. Restore Caches
-      # ---------------------------------------------------------
       - name: Restore caches
         uses: actions/cache@v4
         with:
@@ -86,97 +113,60 @@ jobs:
             immortalwrt-${{ env.PROFILE }}-
 
       # ---------------------------------------------------------
-      # 6. Clean & Validate DTS File (语法+格式双重校验)
+      # DTS 清理 + 语法校验
       # ---------------------------------------------------------
       - name: Clean & Validate DTS File
         run: |
           cd ${{ env.BUILD_DIR }}
-          # 1. 彻底清理特殊字符
+
+          echo "Using DTS_FILE=${{ env.DTS_FILE }}"
+
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
           sed -i 's/\r//g' "${{ env.DTS_FILE }}" || true
           tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
-          # 2. 打印前15行检查格式
+
           echo "=== DTS Header Check (First 15 Lines) ==="
           head -15 "${{ env.DTS_FILE }}"
-          # 3. 语法校验
+
           echo "=== Validating DTS Syntax ==="
           if ! dtc -I dts -O dtb -o /dev/null "${{ env.DTS_FILE }}"; then
             echo "ERROR: DTS Syntax Error!"
-            dtc -I dts -O dtb -o /dev/null "${{ env.DTS_FILE }}" 2>&1 | head -20
             exit 1
           fi
           echo "DTS Syntax Check Passed"
 
       # ---------------------------------------------------------
-      # 7. Full 3-piece Consistency Check & Auto-fix
+      # 三件套一致性检查
       # ---------------------------------------------------------
       - name: Full 3-piece Consistency Check & Auto-fix
         run: |
           cd ${{ env.BUILD_DIR }}
           set -e
-          echo "=== Starting 3-piece Consistency Check ==="
-          # Check 1: DTS file exists
-          if [ ! -f "${{ env.DTS_FILE }}" ]; then
-            echo "ERROR: DTS File Not Found: ${{ env.DTS_FILE }}"
-            exit 1
-          fi
-          echo "✅ DTS File Exists"
-          # Check 2: MK file exists
-          if [ ! -f "${{ env.MK_FILE }}" ]; then
-            echo "ERROR: MK File Not Found: ${{ env.MK_FILE }}"
-            exit 1
-          fi
-          echo "✅ MK File Exists"
-          # Check 3: Device definition in MK
-          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "ERROR: Device Definition Missing in MK: ${{ env.PROFILE }}"
-            exit 1
-          fi
-          echo "✅ MK Device Definition Exists"
-          # Check 4: DEVICE_DTS Match
-          if ! grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "ERROR: DEVICE_DTS Mismatch in MK"
-            exit 1
-          fi
-          echo "✅ MK-DTS Name Match"
-          # Check 5: DTB Compile Entry
-          if ! grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}"; then
-            echo "WARNING: Adding DTB Compile Entry to DTS_MK"
+
+          echo "=== Checking DTS File Exists ==="
+          test -f "${{ env.DTS_FILE }}" || { echo "DTS Missing"; exit 1; }
+
+          echo "=== Checking MK File Exists ==="
+          test -f "${{ env.MK_FILE }}" || { echo "MK Missing"; exit 1; }
+
+          echo "=== Checking DTS_MK Exists ==="
+          test -f "${{ env.DTS_MK }}" || { echo "DTS_MK Missing"; exit 1; }
+
+          echo "=== Checking MK Device Definition ==="
+          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || exit 1
+
+          echo "=== Checking DEVICE_DTS ==="
+          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || exit 1
+
+          echo "=== Checking DTS_MK dtb-y Entry ==="
+          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || \
             echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
-          fi
-          echo "✅ DTB Compile Entry Ready"
-          # Check 6: .config Device Selected
-          if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config; then
-            echo "WARNING: Adding Device to .config"
-            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
-          fi
-          echo "✅ .config Device Selected"
-          # Generate defconfig
-          make defconfig
-          echo "=== 3-piece Consistency Check All Passed ==="
+
+          echo "=== 3-piece Check Passed ==="
 
       # ---------------------------------------------------------
-      # 8. Validate & Handle Patches
-      # ---------------------------------------------------------
-      - name: Validate & Handle Patches
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          mkdir -p logs/failed_patches
-          for p in target/linux/mediatek/patches-6.12/*.patch; do
-            [ -f "$p" ] || continue
-            echo "Processing Patch: $p"
-            if patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
-              patch -p1 < "$p"
-              echo "✅ Patch Applied: $p"
-            else
-              cp "$p" logs/failed_patches/
-              echo "⚠️ Patch Skipped: $p (Saved to logs)"
-            fi
-          done
-
-      # ---------------------------------------------------------
-      # 9. Setup Feeds
+      # 后续构建步骤（保持不变）
       # ---------------------------------------------------------
       - name: Setup Feeds
         run: |
@@ -185,33 +175,21 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ---------------------------------------------------------
-      # 10. Build Tools
-      # ---------------------------------------------------------
       - name: Build Tools
         run: |
           cd ${{ env.BUILD_DIR }}
           make tools/install -j2 V=s
 
-      # ---------------------------------------------------------
-      # 11. Build Toolchain
-      # ---------------------------------------------------------
       - name: Build Toolchain
         run: |
           cd ${{ env.BUILD_DIR }}
           make toolchain/install -j1 V=s
 
-      # ---------------------------------------------------------
-      # 12. Build Target
-      # ---------------------------------------------------------
       - name: Build Target
         run: |
           cd ${{ env.BUILD_DIR }}
           make target/compile -j1 V=s
 
-      # ---------------------------------------------------------
-      # 13. Build Packages
-      # ---------------------------------------------------------
       - name: Build Packages
         run: |
           cd ${{ env.BUILD_DIR }}
@@ -219,67 +197,20 @@ jobs:
           make package/install -j2 V=s
           make package/index
 
-      # ---------------------------------------------------------
-      # 14. Build Firmware
-      # ---------------------------------------------------------
       - name: Build Firmware
         run: |
           cd ${{ env.BUILD_DIR }}
           make -j2 V=s || make -j1 V=s
 
-      # ---------------------------------------------------------
-      # 15. Verify Firmware
-      # ---------------------------------------------------------
       - name: Verify Firmware Output
         run: |
           cd ${{ env.BUILD_DIR }}
-          echo "=== Firmware List ==="
-          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || { echo "ERROR: No Firmware Found"; exit 1; }
-          echo -e "\n=== MD5 Checksum ==="
-          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
-          echo -e "\n=== File Type Check ==="
-          for bin in ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*.bin; do
-            file $bin || true
-          done
-          echo "✅ Firmware Validation Passed"
+          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*
+          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*
 
-      # ---------------------------------------------------------
-      # 16. Upload Artifacts
-      # ---------------------------------------------------------
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-build-${{ github.run_number }}
           path: |
             ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
-            ${{ env.BUILD_DIR }}/logs/failed_patches/*
-          retention-days: 7
-
-      # ---------------------------------------------------------
-      # 17. Publish to Release
-      # ---------------------------------------------------------
-      - name: Publish Firmware to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.run_number }}
-          name: ImmortalWrt SL3000 eMMC Firmware v${{ github.run_number }}
-          body: |
-            ## Build Info
-            - Device: SL-3000 eMMC Ultimate Edition
-            - Kernel: Linux 6.12.63
-            - Commit: ${{ github.sha_short }}
-            - Check: 3-piece (DTS/MK/.config) Consistency Passed
-          files: |
-            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
-          draft: false
-          prerelease: false
-
-      # ---------------------------------------------------------
-      # 18. Post-build Cleanup
-      # ---------------------------------------------------------
-      - name: Post-build Cleanup
-        if: always()
-        run: |
-          cd ${{ env.BUILD_DIR }}
-          sudo rm -rf tmp build_dir staging_dir logs/failed_patches
-          df -h
