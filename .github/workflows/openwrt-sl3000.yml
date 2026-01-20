@@ -96,7 +96,7 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       # ---------------------------------------------------------
-      # 7. Fetch dt-bindings (ImmortalWrt source)
+      # 7. Fetch dt-bindings (ImmortalWrt + Linux upstream)
       # ---------------------------------------------------------
       - name: Fetch required dt-bindings
         run: |
@@ -105,32 +105,32 @@ jobs:
           LOG_FILE="logs/dt-bindings.log"
           mkdir -p logs
 
+          IMMORTAL_BASE="https://raw.githubusercontent.com/immortalwrt/immortalwrt/master"
+          LINUX_BASE="https://raw.githubusercontent.com/torvalds/linux/master"
+
           fetch_binding() {
             hdr="$1"
             local_path="include/$hdr"
             mkdir -p "$(dirname "$local_path")"
-
-            IMMORTAL_BASE="https://raw.githubusercontent.com/immortalwrt/immortalwrt/master"
-
             try_urls=()
 
-            # 通用 dt-bindings / uapi
-            if [[ "$hdr" == dt-bindings/* ]]; then
-              try_urls+=("$IMMORTAL_BASE/include/$hdr")
-            fi
-
-            if [[ "$hdr" == "dt-bindings/input/input-event-codes.h" ]]; then
-              try_urls+=("$IMMORTAL_BASE/include/uapi/linux/input-event-codes.h")
-            fi
-
-            if [[ "$hdr" == "dt-bindings/leds/leds.h" ]]; then
-              try_urls+=("$IMMORTAL_BASE/include/dt-bindings/leds/common.h")
-            fi
-
-            # MT7981 SoC DTSI / pinfunc 从 ImmortalWrt files-6.12 拉
-            if [[ "$hdr" == mt7981* || "$hdr" == *pinfunc.h ]]; then
-              try_urls+=("$IMMORTAL_BASE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/$hdr")
-            fi
+            case "$hdr" in
+              mt7981*.dtsi|mt7981*-pinfunc.h)
+                try_urls+=("$IMMORTAL_BASE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/$hdr")
+                ;;
+              dt-bindings/gpio/gpio.h)
+                try_urls+=("$LINUX_BASE/include/dt-bindings/gpio/gpio.h")
+                ;;
+              dt-bindings/input/input-event-codes.h)
+                try_urls+=("$LINUX_BASE/include/uapi/linux/input-event-codes.h")
+                ;;
+              dt-bindings/leds/leds.h)
+                try_urls+=("$LINUX_BASE/include/dt-bindings/leds/common.h")
+                ;;
+              *)
+                try_urls+=("$LINUX_BASE/include/$hdr")
+                ;;
+            esac
 
             for url in "${try_urls[@]}"; do
               if curl -L --fail "$url" -o "$local_path.tmp" 2>/dev/null; then
@@ -202,7 +202,10 @@ jobs:
               continue
             fi
             cp "$p" logs/failed_patches/
-            # ---------------------------------------------------------
+          done
+
+      # ---------------------------------------------------------
+      # ---------------------------------------------------------
       # 10. Feeds
       # ---------------------------------------------------------
       - name: Setup feeds
@@ -260,8 +263,10 @@ jobs:
       - name: Verify firmware output
         run: |
           cd ${{ env.BUILD_DIR }}
-          ls -lh ${{ env.TARGET_DIR }}/*sl3000* || true
-          md5sum ${{ env.TARGET_DIR }}/*sl3000* || true
+          echo "=== Firmware Files ==="
+          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
+          echo "=== MD5 ==="
+          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
 
       # ---------------------------------------------------------
       # 17. Upload Artifacts
@@ -271,7 +276,7 @@ jobs:
         with:
           name: immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
 
       # ---------------------------------------------------------
       # 18. Release
@@ -282,12 +287,15 @@ jobs:
           tag_name: v${{ github.run_number }}
           name: ImmortalWrt SL3000 Firmware ${{ github.run_number }}
           files: |
-            ${{ env.TARGET_DIR }}/**/*sl3000*
+            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
 
       # ---------------------------------------------------------
       # 19. Post-build Disk Cleanup
       # ---------------------------------------------------------
       - name: Post-build Disk Cleanup
         run: |
-          sudo rm -rf ${{ env.BUILD_DIR }}/tmp ${{ env.BUILD_DIR }}/build_dir ${{ env.BUILD_DIR }}/staging_dir
+          sudo rm -rf \
+            ${{ env.BUILD_DIR }}/tmp \
+            ${{ env.BUILD_DIR }}/build_dir \
+            ${{ env.BUILD_DIR }}/staging_dir
           df -h
