@@ -96,35 +96,40 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       # ---------------------------------------------------------
-      # 7. Fetch dt-bindings (最终修复版)
+      # 7. Fetch dt-bindings (ImmortalWrt source)
       # ---------------------------------------------------------
       - name: Fetch required dt-bindings
         run: |
           cd ${{ env.BUILD_DIR }}
           DTS_FILE="${{ env.DTS_FILE }}"
+          LOG_FILE="logs/dt-bindings.log"
+          mkdir -p logs
 
           fetch_binding() {
             hdr="$1"
             local_path="include/$hdr"
             mkdir -p "$(dirname "$local_path")"
 
-            try_urls=(
-              "https://raw.githubusercontent.com/torvalds/linux/master/include/$hdr"
-            )
+            IMMORTAL_BASE="https://raw.githubusercontent.com/immortalwrt/immortalwrt/master"
 
-            # input-event-codes.h → uapi/linux
+            try_urls=()
+
+            # 通用 dt-bindings / uapi
+            if [[ "$hdr" == dt-bindings/* ]]; then
+              try_urls+=("$IMMORTAL_BASE/include/$hdr")
+            fi
+
             if [[ "$hdr" == "dt-bindings/input/input-event-codes.h" ]]; then
-              try_urls+=("https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/input-event-codes.h")
+              try_urls+=("$IMMORTAL_BASE/include/uapi/linux/input-event-codes.h")
             fi
 
-            # leds.h → common.h
             if [[ "$hdr" == "dt-bindings/leds/leds.h" ]]; then
-              try_urls+=("https://raw.githubusercontent.com/torvalds/linux/master/include/dt-bindings/leds/common.h")
+              try_urls+=("$IMMORTAL_BASE/include/dt-bindings/leds/common.h")
             fi
 
-            # MT7981 SoC DTSI / pinfunc
+            # MT7981 SoC DTSI / pinfunc 从 ImmortalWrt files-6.12 拉
             if [[ "$hdr" == mt7981* || "$hdr" == *pinfunc.h ]]; then
-              try_urls+=("https://raw.githubusercontent.com/torvalds/linux/master/arch/arm64/boot/dts/mediatek/$hdr")
+              try_urls+=("$IMMORTAL_BASE/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/$hdr")
             fi
 
             for url in "${try_urls[@]}"; do
@@ -132,13 +137,13 @@ jobs:
                 size=$(wc -c < "$local_path.tmp")
                 if [ "$size" -gt 100 ]; then
                   mv "$local_path.tmp" "$local_path"
-                  echo "✔ Fetched: $hdr ← $url"
+                  echo "✔ Fetched: $hdr ← $url" | tee -a "$LOG_FILE"
                   return
                 fi
               fi
             done
 
-            echo "⚠ Skip empty or unresolved dt-binding: $hdr"
+            echo "⚠ Skip unresolved dt-binding: $hdr" | tee -a "$LOG_FILE"
             rm -f "$local_path.tmp"
           }
 
@@ -155,7 +160,6 @@ jobs:
         run: |
           cd ${{ env.BUILD_DIR }}
           grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
-
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
               echo ""
@@ -177,7 +181,6 @@ jobs:
               echo "TARGET_DEVICES += ${{ env.PROFILE }}"
             } >> "${{ env.MK_FILE }}"
           fi
-
           grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
           make defconfig
 
@@ -199,9 +202,7 @@ jobs:
               continue
             fi
             cp "$p" logs/failed_patches/
-          done
-
-      # ---------------------------------------------------------
+            # ---------------------------------------------------------
       # 10. Feeds
       # ---------------------------------------------------------
       - name: Setup feeds
