@@ -96,73 +96,17 @@ jobs:
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
       # ---------------------------------------------------------
-      # 7. Fetch dt-bindings (ImmortalWrt + Linux upstream)
-      #   —— 修复版：封装为 bash -c，避免 EOF / 引号问题
-      # ---------------------------------------------------------
-      - name: Fetch required dt-bindings
-        run: |
-          bash -c '
-            cd "${BUILD_DIR}"
-            DTS_FILE="${DTS_FILE}"
-            LOG_FILE="logs/dt-bindings.log"
-            mkdir -p logs include
-
-            IMMORTAL_BASE="https://raw.githubusercontent.com/immortalwrt/immortalwrt/master"
-            LINUX_BASE="https://raw.githubusercontent.com/torvalds/linux/master"
-
-            fetch_binding() {
-              hdr="$1"
-              local_path="include/$hdr"
-              mkdir -p "$(dirname "$local_path")"
-              try_urls=()
-
-              case "$hdr" in
-                mt7981*.dtsi|mt7981*-pinfunc.h)
-                  try_urls+=("${IMMORTAL_BASE}/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/$hdr")
-                  ;;
-                dt-bindings/gpio/gpio.h)
-                  try_urls+=("${LINUX_BASE}/include/dt-bindings/gpio/gpio.h")
-                  ;;
-                dt-bindings/input/input-event-codes.h)
-                  try_urls+=("${LINUX_BASE}/include/uapi/linux/input-event-codes.h")
-                  ;;
-                dt-bindings/leds/leds.h)
-                  try_urls+=("${LINUX_BASE}/include/dt-bindings/leds/common.h")
-                  ;;
-                *)
-                  try_urls+=("${LINUX_BASE}/include/$hdr")
-                  ;;
-              esac
-
-              for url in "${try_urls[@]}"; do
-                if curl -L --fail "$url" -o "$local_path.tmp" 2>/dev/null; then
-                  size=$(wc -c < "$local_path.tmp")
-                  if [ "$size" -gt 100 ]; then
-                    mv "$local_path.tmp" "$local_path"
-                    echo "✔ Fetched: $hdr ← $url" | tee -a "$LOG_FILE"
-                    return
-                  fi
-                fi
-              done
-
-              echo "⚠ Skip unresolved dt-binding: $hdr" | tee -a "$LOG_FILE"
-              rm -f "$local_path.tmp"
-            }
-
-            grep -E "^#include|^/include/" "$DTS_FILE" | \
-            sed -E "s/.*[<\"]([^\">]+)[\">].*/\1/" | while read hdr; do
-              echo "Checking: $hdr"
-              [ -f "include/$hdr" ] || fetch_binding "$hdr"
-            done
-          '
-
-      # ---------------------------------------------------------
-      # 8. Validate 3-piece consistency
+      # 7. Validate 3-piece consistency（DTS / MK / .config）
       # ---------------------------------------------------------
       - name: Validate & Auto-fix 3-piece consistency
         run: |
           cd ${{ env.BUILD_DIR }}
-          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+
+          # DTS_MK: ensure dtb-y entry
+          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || \
+            echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+
+          # MK_FILE: ensure device entry exists
           if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
             {
               echo ""
@@ -184,11 +128,15 @@ jobs:
               echo "TARGET_DEVICES += ${{ env.PROFILE }}"
             } >> "${{ env.MK_FILE }}"
           fi
-          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+
+          # .config: ensure device selected
+          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" .config || \
+            echo "CONFIG_TARGET_mediatek_filogic_DEVICE_${{ env.PROFILE }}=y" >> .config
+
           make defconfig
 
       # ---------------------------------------------------------
-      # 9. Auto-fix patches
+      # 8. Auto-fix patches
       # ---------------------------------------------------------
       - name: Validate & Auto-fix patches
         run: |
@@ -198,17 +146,14 @@ jobs:
             echo "Testing patch: $p"
             if patch --dry-run -p1 < "$p" > /dev/null 2>&1; then
               patch -p1 < "$p"
-              continue
-            fi
-            if grep -q "MTK_PULL_PD_TYPE" drivers/pinctrl/mediatek/pinctrl-mtk-common.h 2>/dev/null; then
+            else
+              cp "$p" logs/failed_patches/
               rm -f "$p"
-              continue
             fi
-            cp "$p" logs/failed_patches/
           done
 
       # ---------------------------------------------------------
-      # 10. Feeds
+      # 9. Feeds
       # ---------------------------------------------------------
       - name: Setup feeds
         run: |
@@ -218,7 +163,7 @@ jobs:
           ./scripts/feeds install -a
 
       # ---------------------------------------------------------
-      # 11. Build Tools
+      # 10. Build Tools
       # ---------------------------------------------------------
       - name: Build tools
         run: |
@@ -226,7 +171,7 @@ jobs:
           make tools/install -j$(nproc) V=s
 
       # ---------------------------------------------------------
-      # 12. Build Toolchain
+      # 11. Build Toolchain
       # ---------------------------------------------------------
       - name: Build toolchain
         run: |
@@ -234,7 +179,7 @@ jobs:
           make toolchain/install -j$(nproc) V=s
 
       # ---------------------------------------------------------
-      # 13. Build Target
+      # 12. Build Target
       # ---------------------------------------------------------
       - name: Build target
         run: |
@@ -242,7 +187,7 @@ jobs:
           make target/compile -j$(nproc) V=s
 
       # ---------------------------------------------------------
-      # 14. Build Packages
+      # 13. Build Packages
       # ---------------------------------------------------------
       - name: Build packages
         run: |
@@ -252,7 +197,7 @@ jobs:
           make package/index
 
       # ---------------------------------------------------------
-      # 15. Build Firmware
+      # 14. Build Firmware
       # ---------------------------------------------------------
       - name: Build firmware
         run: |
@@ -260,7 +205,7 @@ jobs:
           make -j$(nproc) V=s || make -j1 V=s
 
       # ---------------------------------------------------------
-      # 16. Verify Firmware
+      # 15. Verify Firmware
       # ---------------------------------------------------------
       - name: Verify firmware output
         run: |
@@ -271,7 +216,7 @@ jobs:
           md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
 
       # ---------------------------------------------------------
-      # 17. Upload Artifacts
+      # 16. Upload Artifacts
       # ---------------------------------------------------------
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -281,7 +226,7 @@ jobs:
             ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
 
       # ---------------------------------------------------------
-      # 18. Release
+      # 17. Release
       # ---------------------------------------------------------
       - name: Publish firmware to Release
         uses: softprops/action-gh-release@v2
@@ -292,7 +237,7 @@ jobs:
             ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
 
       # ---------------------------------------------------------
-      # 19. Post-build Disk Cleanup
+      # 18. Post-build Disk Cleanup
       # ---------------------------------------------------------
       - name: Post-build Disk Cleanup
         run: |
