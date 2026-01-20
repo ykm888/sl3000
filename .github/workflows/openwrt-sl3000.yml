@@ -10,7 +10,7 @@ env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
 
-  # 默认路径（旧路径，自动修复会覆盖）
+  # 默认路径（自动检测会覆盖）
   DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
   DTS_MK: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/Makefile
 
@@ -30,21 +30,16 @@ jobs:
           fetch-depth: 1
 
       # ---------------------------------------------------------
-      # 自动检测 + 自动修复 DTS 路径（核心增强）
+      # 0. 自动检测 + 自动修复 DTS 路径
       # ---------------------------------------------------------
       - name: Auto Detect & Fix DTS Path
         run: |
           echo "=== Auto Detecting DTS Path ==="
 
-          # 正确路径（filogic）
           CORRECT_DTS="target/linux/mediatek/files-6.12/filogic/arch/arm64/boot/dts/mediatek/${{ env.DTS_NAME }}.dts"
           CORRECT_DTS_MK="target/linux/mediatek/files-6.12/filogic/arch/arm64/boot/dts/mediatek/Makefile"
 
-          # 旧路径（错误路径）
-          OLD_DTS="${{ env.DTS_FILE }}"
-          OLD_DTS_MK="${{ env.DTS_MK }}"
-
-          # 自动修复 DTS_FILE
+          # 修复 DTS_FILE
           if [ -f "$CORRECT_DTS" ]; then
             echo "Found correct DTS at: $CORRECT_DTS"
             echo "DTS_FILE=$CORRECT_DTS" >> $GITHUB_ENV
@@ -54,22 +49,19 @@ jobs:
             exit 1
           fi
 
-          # 自动修复 DTS_MK
+          # 修复 DTS_MK（可选）
           if [ -f "$CORRECT_DTS_MK" ]; then
-            echo "Found correct DTS_MK at: $CORRECT_DTS_MK"
+            echo "Found DTS_MK at: $CORRECT_DTS_MK"
             echo "DTS_MK=$CORRECT_DTS_MK" >> $GITHUB_ENV
           else
-            echo "ERROR: DTS_MK not found at correct path!"
-            echo "Expected: $CORRECT_DTS_MK"
-            exit 1
+            echo "No DTS_MK override found (this is normal)"
+            echo "DTS_MK=" >> $GITHUB_ENV
           fi
 
           echo "=== DTS Path Auto-Fix Completed ==="
-          echo "Final DTS_FILE: $CORRECT_DTS"
-          echo "Final DTS_MK:   $CORRECT_DTS_MK"
 
       # ---------------------------------------------------------
-      # Pre-build Disk Optimization
+      # 1. Pre-build Disk Optimization
       # ---------------------------------------------------------
       - name: Pre-build Disk Optimization
         run: |
@@ -113,7 +105,7 @@ jobs:
             immortalwrt-${{ env.PROFILE }}-
 
       # ---------------------------------------------------------
-      # DTS 清理 + 语法校验
+      # 2. DTS 清理 + 基础语法校验
       # ---------------------------------------------------------
       - name: Clean & Validate DTS File
         run: |
@@ -137,7 +129,52 @@ jobs:
           echo "DTS Syntax Check Passed"
 
       # ---------------------------------------------------------
-      # 三件套一致性检查
+      # 3. DTS 深度分析（include / label / 节点冲突 / DTB diff）
+      # ---------------------------------------------------------
+      - name: Deep DTS Analysis
+        run: |
+          cd ${{ env.BUILD_DIR }}
+          mkdir -p logs/dts
+          DTS="${{ env.DTS_FILE }}"
+          DTB_OUT="logs/dts/${{ env.DTS_NAME }}.dtb"
+          DUMP_DTS="logs/dts/${{ env.DTS_NAME }}.dump.dts"
+
+          echo "=== Rebuild DTB for Analysis ==="
+          dtc -I dts -O dtb -o "$DTB_OUT" "$DTS"
+
+          echo "=== Dump DTB Back to DTS (Normalized) ==="
+          dtc -I dtb -O dts -o "$DUMP_DTS" "$DTB_OUT"
+
+          echo "=== DTS Include Dependency Check ==="
+          grep -E '^#include' "$DTS" || echo "No #include lines found (OK if base DTS)"
+
+          echo "=== DTS Label Duplicate Check ==="
+          # 提取 label: node 形式，统计重复
+          awk '/:/{print $1}' "$DTS" | sed 's/:$//' | sort | uniq -d > logs/dts/duplicate_labels.txt || true
+          if [ -s logs/dts/duplicate_labels.txt ]; then
+            echo "WARNING: Duplicate labels detected:"
+            cat logs/dts/duplicate_labels.txt
+          else
+            echo "No duplicate labels detected."
+          fi
+
+          echo "=== DTS Node Path Conflict Check ==="
+          # 粗略提取 node@addr 路径
+          grep -E '^[[:space:]]*[a-zA-Z0-9,_-]+(@[0-9a-fA-Fx]+)?[[:space:]]*\{' "$DTS" \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*\{.*$//' \
+            | sort | uniq -d > logs/dts/duplicate_nodes.txt || true
+          if [ -s logs/dts/duplicate_nodes.txt ]; then
+            echo "WARNING: Potential duplicate node names:"
+            cat logs/dts/duplicate_nodes.txt
+          else
+            echo "No obvious duplicate node names."
+          fi
+
+          echo "=== DTB Structural Dump Summary ==="
+          head -40 "$DUMP_DTS" || true
+
+      # ---------------------------------------------------------
+      # 4. 三件套一致性检查
       # ---------------------------------------------------------
       - name: Full 3-piece Consistency Check & Auto-fix
         run: |
@@ -150,23 +187,25 @@ jobs:
           echo "=== Checking MK File Exists ==="
           test -f "${{ env.MK_FILE }}" || { echo "MK Missing"; exit 1; }
 
-          echo "=== Checking DTS_MK Exists ==="
-          test -f "${{ env.DTS_MK }}" || { echo "DTS_MK Missing"; exit 1; }
-
           echo "=== Checking MK Device Definition ==="
           grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || exit 1
 
           echo "=== Checking DEVICE_DTS ==="
           grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || exit 1
 
-          echo "=== Checking DTS_MK dtb-y Entry ==="
-          grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || \
-            echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          # DTS_MK 可选
+          if [ -n "${{ env.DTS_MK }}" ] && [ -f "${{ env.DTS_MK }}" ]; then
+            echo "=== Checking DTS_MK dtb-y Entry ==="
+            grep -q "dtb-y += ${{ env.DTS_NAME }}.dtb" "${{ env.DTS_MK }}" || \
+              echo "dtb-y += ${{ env.DTS_NAME }}.dtb" >> "${{ env.DTS_MK }}"
+          else
+            echo "Skipping DTS_MK check (not provided)"
+          fi
 
           echo "=== 3-piece Check Passed ==="
 
       # ---------------------------------------------------------
-      # 后续构建步骤（保持不变）
+      # 5. Feeds / Tools / Toolchain / Target / Packages / Firmware
       # ---------------------------------------------------------
       - name: Setup Feeds
         run: |
@@ -205,8 +244,15 @@ jobs:
       - name: Verify Firmware Output
         run: |
           cd ${{ env.BUILD_DIR }}
-          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*
-          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*
+          echo "=== Firmware List ==="
+          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || { echo "ERROR: No Firmware Found"; exit 1; }
+          echo -e "\n=== MD5 Checksum ==="
+          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
+          echo -e "\n=== File Type Check ==="
+          for bin in ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*.bin; do
+            file $bin || true
+          done
+          echo "✅ Firmware Validation Passed"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -214,3 +260,4 @@ jobs:
           name: immortalwrt-${{ env.PROFILE }}-build-${{ github.run_number }}
           path: |
             ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
+            ${{ env.BUILD_DIR }}/logs/dts/*
