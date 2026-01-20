@@ -1,7 +1,7 @@
 /dts-v1/;
 
 /* 基础 SoC 定义 */
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 /* GPIO 宏定义 */
 #include <dt-bindings/gpio/gpio.h>
@@ -156,3 +156,4 @@
         conf { groups = "emmc_45"; drive-strength = <MTK_DRIVE_8mA>; };
     };
 };
+
