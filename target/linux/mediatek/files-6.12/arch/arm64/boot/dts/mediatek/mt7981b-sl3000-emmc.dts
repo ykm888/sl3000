@@ -6,11 +6,11 @@
 #include <dt-bindings/leds/leds.h>
 
  / {
-    model = "SL-3000 (AX3000) eMMC Board";
+    model = "SL-3000 (AX3000) eMMC Board — Flagship Edition";
     compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
     /* ===========================
-     * 必须补的电源节点（eMMC 依赖）
+     * 电源（eMMC / SoC 必需）
      * =========================== */
     reg_3p3v: regulator-3p3v {
         compatible = "regulator-fixed";
@@ -28,26 +28,91 @@
         regulator-always-on;
     };
 
-    aliases {
-        serial0 = &uart0;
-        label-mac-device = &gmac0;
+    /* ===========================
+     * 热管理（防止降频）
+     * =========================== */
+    thermal-zones {
+        cpu_thermal {
+            polling-delay-passive = <1000>;
+            polling-delay = <2000>;
 
-        led-boot = &led_status_green;
-        led-failsafe = &led_status_red;
-        led-running = &led_status_green;
-        led-upgrade = &led_status_blue;
+            trips {
+                cpu_alert: cpu-alert {
+                    temperature = <85000>;
+                    hysteresis = <2000>;
+                    type = "passive";
+                };
+
+                cpu_crit: cpu-crit {
+                    temperature = <100000>;
+                    hysteresis = <2000>;
+                    type = "critical";
+                };
+            };
+        };
     };
 
-    chosen {
-        stdout-path = "serial0:115200n8";
-        bootargs = "console=ttyS0,115200 earlycon root=/dev/mmcblk0p5";
-    };
-
+    /* ===========================
+     * 内存
+     * =========================== */
     memory@40000000 {
         device_type = "memory";
         reg = <0 0x40000000 0 0x40000000>; /* 1GB */
     };
 
+    /* ===========================
+     * reserved-memory（WiFi 稳定性增强）
+     * =========================== */
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+
+        wifi_reserved: wifi@40000000 {
+            reg = <0 0x40000000 0 0x200000>;
+            no-map;
+        };
+    };
+
+    /* ===========================
+     * reboot-mode（支持 recovery）
+     * =========================== */
+    reboot-mode {
+        compatible = "syscon-reboot-mode";
+        offset = <0x0>;
+        mask = <0x1>;
+    };
+
+    /* ===========================
+     * LED（旗舰级行为）
+     * =========================== */
+    leds {
+        compatible = "gpio-leds";
+
+        led_status_green: status_green {
+            function = LED_FUNCTION_STATUS;
+            color = <LED_COLOR_ID_GREEN>;
+            gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "heartbeat";
+        };
+
+        led_status_red: status_red {
+            function = LED_FUNCTION_FAULT;
+            color = <LED_COLOR_ID_RED>;
+            gpios = <&pio 8 GPIO_ACTIVE_LOW>;
+        };
+
+        led_status_blue: status_blue {
+            function = LED_FUNCTION_WLAN;
+            color = <LED_COLOR_ID_BLUE>;
+            gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "phy0tpt";
+        };
+    };
+
+    /* ===========================
+     * 按键
+     * =========================== */
     keys {
         compatible = "gpio-keys";
 
@@ -64,42 +129,56 @@
         };
     };
 
-    leds {
-        compatible = "gpio-leds";
+    /* ===========================
+     * 别名
+     * =========================== */
+    aliases {
+        serial0 = &uart0;
+        label-mac-device = &gmac0;
 
-        led_status_green: status_green {
-            function = LED_FUNCTION_STATUS;
-            color = <LED_COLOR_ID_GREEN>;
-            gpios = <&pio 9 GPIO_ACTIVE_LOW>;
-        };
+        led-boot = &led_status_green;
+        led-failsafe = &led_status_red;
+        led-running = &led_status_green;
+        led-upgrade = &led_status_blue;
+    };
 
-        led_status_red: status_red {
-            function = LED_FUNCTION_FAULT;
-            color = <LED_COLOR_ID_RED>;
-            gpios = <&pio 8 GPIO_ACTIVE_LOW>;
-        };
-
-        led_status_blue: status_blue {
-            function = LED_FUNCTION_WLAN;
-            color = <LED_COLOR_ID_BLUE>;
-            gpios = <&pio 7 GPIO_ACTIVE_LOW>;
-        };
+    /* ===========================
+     * chosen
+     * =========================== */
+    chosen {
+        stdout-path = "serial0:115200n8";
+        bootargs = "console=ttyS0,115200 earlycon root=/dev/mmcblk0p5";
     };
 };
 
-/* UART */
+/* ===========================
+ * UART
+ * =========================== */
 &uart0 {
     status = "okay";
 };
 
-/* Watchdog */
+/* ===========================
+ * Watchdog（增强）
+ * =========================== */
 &watchdog {
+    status = "okay";
+    timeout-sec = <30>;
+};
+
+/* ===========================
+ * RNG（加密性能增强）
+ * =========================== */
+&rng {
     status = "okay";
 };
 
-/* Ethernet + MT7531 Switch */
+/* ===========================
+ * Ethernet + MT7531 Switch
+ * =========================== */
 &eth {
     status = "okay";
+    interrupt-affinity = <1>; /* 性能增强 */
 
     gmac0: mac@0 {
         compatible = "mediatek,eth-mac";
@@ -149,7 +228,9 @@
     };
 };
 
-/* eMMC */
+/* ===========================
+ * eMMC
+ * =========================== */
 &mmc0 {
     status = "okay";
     bus-width = <8>;
@@ -169,7 +250,9 @@
     non-removable;
 };
 
-/* SPI NOR */
+/* ===========================
+ * SPI NOR
+ * =========================== */
 &spi0 {
     status = "okay";
 
@@ -194,7 +277,6 @@
                 reg = <0x100000 0x0080000>;
             };
 
-            /* 必须补 phandle，否则 WiFi EEPROM 无法加载 */
             factory: partition@180000 {
                 label = "factory";
                 reg = <0x180000 0x0200000>;
@@ -215,13 +297,20 @@
     };
 };
 
-/* WiFi */
+/* ===========================
+ * WiFi（旗舰增强）
+ * =========================== */
 &wmac {
     status = "okay";
     mediatek,mtd-eeprom = <&factory 0x0000>;
+    interrupt-affinity = <1>;
+    mediatek,txpower-mode = "auto";
+    mediatek,disable-11b = <1>;
 };
 
-/* Pinmux */
+/* ===========================
+ * Pinmux
+ * =========================== */
 &pio {
     mmc0_pins_default: mmc0-pins-default {
         mux { function = "flash"; groups = "emmc_45"; };
