@@ -1,359 +1,373 @@
 /dts-v1/;
 
-/* ===== dt-bindings（Linux 6.12 官方路径） ===== */
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/pinctrl/mt65xx.h>
 
-/* ===== SoC 基础层 ===== */
 #include "mt7981b.dtsi"
 
 / {
-	model = "SL-3000 eMMC Board (Ultimate Edition)";
-	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+    model = "SL-3000 eMMC Board (Ultimate Edition)";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
-	/* ===========================
-	 * 内存（1GB）
-	 * =========================== */
-	memory@40000000 {
-		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>;
-	};
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0 0x40000000 0 0x40000000>;
+    };
 
-	/* ===========================
-	 * 电源（WiFi / eMMC / SPI NOR）
-	 * =========================== */
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3v";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
-	};
+    reg_3p3v: regulator-3p3v {
+        compatible = "regulator-fixed";
+        regulator-name = "fixed-3.3v";
+        regulator-min-microvolt = <3300000>;
+        regulator-max-microvolt = <3300000>;
+        regulator-always-on;
+        regulator-boot-on;
+    };
 
-	reg_1p8v: regulator-1p8v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-1.8v";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-always-on;
-	};
+    reg_1p8v: regulator-1p8v {
+        compatible = "regulator-fixed";
+        regulator-name = "fixed-1.8v";
+        regulator-min-microvolt = <1800000>;
+        regulator-max-microvolt = <1800000>;
+        regulator-always-on;
+        regulator-boot-on;
+        vin-supply = <&reg_3p3v>;
+    };
 
-	/* ===========================
-	 * CPU OPP 表（本地定义）
-	 * =========================== */
-	cpu_opp_table: cpu-opp-table {
-		compatible = "operating-points-v2";
+    cpu_opp_table: cpu-opp-table {
+        compatible = "operating-points-v2";
 
-		opp-650000000 {
-			opp-hz = /bits/ 64 <650000000>;
-			opp-microvolt = <800000>;
-		};
+        opp-400000000 {
+            opp-hz = /bits/ 64 <400000000>;
+            opp-microvolt = <750000>;
+            clock-latency-ns = <100000>;
+        };
 
-		opp-850000000 {
-			opp-hz = /bits/ 64 <850000000>;
-			opp-microvolt = <850000>;
-		};
+        opp-650000000 {
+            opp-hz = /bits/ 64 <650000000>;
+            opp-microvolt = <800000>;
+            clock-latency-ns = <100000>;
+        };
 
-		opp-1000000000 {
-			opp-hz = /bits/ 64 <1000000000>;
-			opp-microvolt = <900000>;
-		};
-	};
+        opp-850000000 {
+            opp-hz = /bits/ 64 <850000000>;
+            opp-microvolt = <850000>;
+            clock-latency-ns = <100000>;
+        };
 
-	/* ===========================
-	 * LED（带触发器）
-	 * =========================== */
-	leds {
-		compatible = "gpio-leds";
+        opp-1000000000 {
+            opp-hz = /bits/ 64 <1000000000>;
+            opp-microvolt = <900000>;
+            clock-latency-ns = <100000>;
+        };
 
-		led_status_green: status_green {
-			function = LED_FUNCTION_STATUS;
-			color = <LED_COLOR_ID_GREEN>;
-			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "heartbeat";
-		};
+        opp-1100000000 {
+            opp-hz = /bits/ 64 <1100000000>;
+            opp-microvolt = <950000>;
+            clock-latency-ns = <100000>;
+        };
+    };
 
-		led_status_red: status_red {
-			function = LED_FUNCTION_FAULT;
-			color = <LED_COLOR_ID_RED>;
-			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "panic";
-		};
+    leds {
+        compatible = "gpio-leds";
 
-		led_status_blue: status_blue {
-			function = LED_FUNCTION_WLAN;
-			color = <LED_COLOR_ID_BLUE>;
-			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
-			linux,default-trigger = "phy0tpt";
-		};
-	};
+        led_status_green: status_green {
+            function = LED_FUNCTION_STATUS;
+            color = <LED_COLOR_ID_GREEN>;
+            gpios = <&pio 9 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "heartbeat";
+        };
 
-	/* ===========================
-	 * 按键（带 debounce）
-	 * =========================== */
-	keys {
-		compatible = "gpio-keys";
+        led_status_red: status_red {
+            function = LED_FUNCTION_FAULT;
+            color = <LED_COLOR_ID_RED>;
+            gpios = <&pio 8 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "panic";
+        };
 
-		reset {
-			label = "reset";
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_RESTART>;
-			debounce-interval = <10>;
-		};
+        led_status_blue: status_blue {
+            function = LED_FUNCTION_WLAN;
+            color = <LED_COLOR_ID_BLUE>;
+            gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "phy0tpt";
+        };
+    };
 
-		wps {
-			label = "wps";
-			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_WPS_BUTTON>;
-			debounce-interval = <10>;
-		};
-	};
+    keys {
+        compatible = "gpio-keys";
 
-	/* ===========================
-	 * GPIO 导出（调试）
-	 * =========================== */
-	gpio-export {
-		compatible = "gpio-export";
-		#size-cells = <0>;
+        reset {
+            label = "reset";
+            gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_RESTART>;
+            debounce-interval = <10>;
+        };
 
-		gpio_debug_2 {
-			gpio-export,name = "gpio2-debug";
-			gpio-export,output = <0>;
-			gpios = <&pio 2 GPIO_ACTIVE_LOW>;
-		};
+        wps {
+            label = "wps";
+            gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_WPS_BUTTON>;
+            debounce-interval = <10>;
+        };
+    };
 
-		gpio_debug_3 {
-			gpio-export,name = "gpio3-debug";
-			gpio-export,output = <0>;
-			gpios = <&pio 3 GPIO_ACTIVE_LOW>;
-		};
-	};
+    gpio-export {
+        compatible = "gpio-export";
+        #size-cells = <0>;
 
-	/* ===========================
-	 * 别名（路径引用）
-	 * =========================== */
-	aliases {
-		serial0 = &{/soc/serial@11002000};
-		label-mac-device = &gmac0;
+        gpio_debug_2 {
+            gpio-export,name = "gpio2-debug";
+            gpio-export,output = <0>;
+            gpios = <&pio 2 GPIO_ACTIVE_LOW>;
+        };
 
-		led-boot = &led_status_green;
-		led-failsafe = &led_status_red;
-		led-running = &led_status_green;
-		led-upgrade = &led_status_blue;
-	};
+        gpio_debug_3 {
+            gpio-export,name = "gpio3-debug";
+            gpio-export,output = <0>;
+            gpios = <&pio 3 GPIO_ACTIVE_LOW>;
+        };
+    };
 
-	chosen {
-		stdout-path = "serial0:115200n8";
-		bootargs = "console=ttyS0,115200 earlycon root=/dev/mmcblk0p5";
-	};
+    aliases {
+        serial0 = &{/soc/serial@11002000};
+        label-mac-device = &gmac0;
+
+        led-boot = &led_status_green;
+        led-failsafe = &led_status_red;
+        led-running = &led_status_green;
+        led-upgrade = &led_status_blue;
+    };
+
+    chosen {
+        stdout-path = "serial0:115200n8";
+        bootargs = "console=ttyS0,115200 earlycon root=/dev/mmcblk0p5 rootwait rw";
+    };
 };
 
-/* ===========================
- * reserved-memory（扩展 SoC 节点）
- * =========================== */
 &reserved_memory {
-	wifi_emi: wifi@47c80000 {
-		reg = <0 0x47c80000 0 0x100000>;
-		no-map;
-	};
+    wifi_emi: wifi@47c80000 {
+        reg = <0 0x47c80000 0 0x100000>;
+        no-map;
+    };
 
-	wo_emi0: wo-emi@47d80000 {
-		reg = <0 0x47d80000 0 0x40000>;
-		no-map;
-	};
+    wo_emi0: wo-emi@47d80000 {
+        reg = <0 0x47d80000 0 0x40000>;
+        no-map;
+    };
 
-	wo_data: wo-data@47dc0000 {
-		reg = <0 0x47dc0000 0 0x240000>;
-		no-map;
-	};
+    wo_data: wo-data@47dc0000 {
+        reg = <0 0x47dc0000 0 0x240000>;
+        no-map;
+    };
 };
 
-/* ===========================
- * CPU / Thermal（路径引用）
- * =========================== */
 &{/cpus/cpu@0} {
-	status = "okay";
-	operating-points-v2 = <&cpu_opp_table>;
+    status = "okay";
+    operating-points-v2 = <&cpu_opp_table>;
 };
 
 &{/thermal-zones} {
-	/* thermal-zones 是容器节点，不覆盖子节点 */
+    /* 复用 SoC dtsi 原生 thermal 配置，无需覆盖 */
 };
 
-/* ===========================
- * UART（路径引用）
- * =========================== */
 &{/soc/serial@11002000} {
-	status = "okay";
+    status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&uart0_pins>;
 };
 
-/* ===========================
- * Watchdog（SoC 自带 label）
- * =========================== */
 &watchdog {
-	status = "okay";
-	timeout-sec = <30>;
+    status = "okay";
+    timeout-sec = <30>;
+    pretimeout-sec = <5>;
+    reset-on-timeout;
 };
 
-/* ===========================
- * RNG（路径引用）
- * =========================== */
 &{/soc/rng@1020f000} {
-	status = "okay";
+    status = "okay";
 };
 
-/* ===========================
- * Ethernet + MT7531 + WED（路径引用）
- * =========================== */
 &{/soc/eth@15100000} {
-	status = "okay";
-	mediatek,eth-wed-enable = <1>;
+    status = "okay";
+    mediatek,eth-wed-enable = <1>;
+    mediatek,eth-wed-phy-mode = <1>;
 
-	gmac0: mac@0 {
-		compatible = "mediatek,eth-mac";
-		reg = <0>;
-		phy-mode = "2500base-x";
+    gmac0: mac@0 {
+        compatible = "mediatek,eth-mac";
+        reg = <0>;
+        phy-mode = "2500base-x";
+        mediatek,tx-delay-ps = <200>;
+        mediatek,rx-delay-ps = <200>;
 
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
-	};
+        fixed-link {
+            speed = <2500>;
+            full-duplex;
+            pause;
+        };
+    };
 
-	mdio-bus {
-		#address-cells = <1>;
-		#size-cells = <0>;
+    mdio-bus {
+        #address-cells = <1>;
+        #size-cells = <0>;
 
-		switch@1f {
-			compatible = "mediatek,mt7531";
-			reg = <0x1f>;
-			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
+        switch@1f {
+            compatible = "mediatek,mt7531";
+            reg = <0x1f>;
+            reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
+            mediatek,portmap = "llllw";
+            mediatek,enable-flow-control;
+            mediatek,enable-stp;
 
-			ports {
-				#address-cells = <1>;
-				#size-cells = <0>;
+            ports {
+                #address-cells = <1>;
+                #size-cells = <0>;
 
-				port@0 { reg = <0>; label = "lan1"; };
-				port@1 { reg = <1>; label = "lan2"; };
-				port@2 { reg = <2>; label = "lan3"; };
-				port@3 { reg = <3>; label = "lan4"; };
+                port@0 { reg = <0>; label = "lan1"; };
+                port@1 { reg = <1>; label = "lan2"; };
+                port@2 { reg = <2>; label = "lan3"; };
+                port@3 { reg = <3>; label = "lan4"; };
 
-				port@6 {
-					reg = <6>;
-					label = "cpu";
-					ethernet = <&gmac0>;
-					phy-mode = "2500base-x";
+                port@6 {
+                    reg = <6>;
+                    label = "cpu";
+                    ethernet = <&gmac0>;
+                    phy-mode = "2500base-x";
 
-					fixed-link {
-						speed = <2500>;
-						full-duplex;
-						pause;
-					};
-				};
-			};
-		};
-	};
+                    fixed-link {
+                        speed = <2500>;
+                        full-duplex;
+                        pause;
+                    };
+                };
+            };
+        };
+    };
 };
 
-/* ===========================
- * eMMC（路径引用）
- * =========================== */
 &{/soc/mmc@11230000} {
-	status = "okay";
-	bus-width = <8>;
-	max-frequency = <200000000>;
+    status = "okay";
+    bus-width = <8>;
+    max-frequency = <200000000>;
+    mmc-ddr-1_8v;
+    mmc-hs200-1_8v;
+    mmc-hs400-1_8v;
+    mmc-hs400-enhanced-strobe;
 
-	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&mmc0_pins_default>;
-	pinctrl-1 = <&mmc0_pins_uhs>;
+    pinctrl-names = "default", "state_uhs";
+    pinctrl-0 = <&mmc0_pins_default>;
+    pinctrl-1 = <&mmc0_pins_uhs>;
 
-	cap-mmc-highspeed;
-	mmc-hs200-1_8v;
-	mmc-hs400-1_8v;
-
-	vmmc-supply = <&reg_3p3v>;
-	vqmmc-supply = <&reg_1p8v>;
-
-	non-removable;
+    cap-mmc-highspeed;
+    keep-power-in-suspend;
+    disable-wp;
+    vmmc-supply = <&reg_3p3v>;
+    vqmmc-supply = <&reg_1p8v>;
+    non-removable;
 };
 
-/* ===========================
- * SPI NOR（路径引用）
- * =========================== */
 &{/soc/spi@1100a000} {
-	status = "okay";
-	num-cs = <1>;
-	pinctrl-names = "default";
+    status = "okay";
+    num-cs = <1>;
+    pinctrl-names = "default";
+    spi-max-frequency = <50000000>;
 
-	flash@0 {
-		compatible = "jedec,spi-nor";
-		reg = <0>;
-		spi-max-frequency = <50000000>;
+    flash@0 {
+        compatible = "jedec,spi-nor";
+        reg = <0>;
+        spi-max-frequency = <50000000>;
+        m25p,fast-read;
 
-		partitions {
-			compatible = "fixed-partitions";
-			#address-cells = <1>;
-			#size-cells = <1>;
+        partitions {
+            compatible = "fixed-partitions";
+            #address-cells = <1>;
+            #size-cells = <1>;
 
-			partition@0 {
-				label = "bl2";
-				reg = <0x00000 0x0100000>;
-				read-only;
-			};
+            partition@0 {
+                label = "bl2";
+                reg = <0x00000 0x0100000>;
+                read-only;
+            };
 
-			partition@100000 {
-				label = "u-boot-env";
-				reg = <0x100000 0x0080000>;
-			};
+            partition@100000 {
+                label = "u-boot-env";
+                reg = <0x100000 0x0080000>;
+            };
 
-			factory: partition@180000 {
-				label = "factory";
-				reg = <0x180000 0x0200000>;
-				read-only;
-			};
+            factory: partition@180000 {
+                label = "factory";
+                reg = <0x180000 0x0200000>;
+                read-only;
+            };
 
-			partition@380000 {
-				label = "fip";
-				reg = <0x380000 0x0200000>;
-				read-only;
-			};
+            partition@380000 {
+                label = "fip";
+                reg = <0x380000 0x0200000>;
+                read-only;
+            };
 
-			partition@580000 {
-				label = "recovery";
-				reg = <0x580000 0x02000000>;
-			};
-		};
-	};
+            partition@580000 {
+                label = "recovery";
+                reg = <0x580000 0x02000000>;
+            };
+        };
+    };
 };
 
-/* ===========================
- * WiFi（路径引用）
- * =========================== */
 &{/soc/wifi@18000000} {
-	status = "okay";
-	mediatek,mtd-eeprom = <&factory 0x0000>;
-	mediatek,eeprom-checksum = <1>;
+    status = "okay";
+    mediatek,mtd-eeprom = <&factory 0x0000>;
+    mediatek,eeprom-checksum = <1>;
+    mediatek,txpwr-limit = <20>;
+    mediatek,antenna-config = <0x00>;
 };
 
-/* ===========================
- * Pinmux（eMMC）
- * =========================== */
 &pio {
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
+    uart0_pins: uart0-pins {
+        mux {
+            function = "uart";
+            groups = "uart0_txrx";
+        };
+    };
 
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
+    mmc0_pins_default: mmc0-pins-default {
+        mux {
+            function = "flash";
+            groups = "emmc_45";
+        };
+    };
+
+    mmc0_pins_uhs: mmc0-pins-uhs {
+        mux {
+            function = "flash";
+            groups = "emmc_45";
+        };
+    };
+
+    unused_gpios: unused-gpios {
+        gpio-hog;
+        gpios = <4 GPIO_ACTIVE_LOW>, <5 GPIO_ACTIVE_LOW>,
+                <6 GPIO_ACTIVE_LOW>, <10 GPIO_ACTIVE_LOW>;
+        output-low;
+        line-name = "unused-gpio-4-5-6-10";
+    };
+};
+
+&pwm {
+    status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&pwm0_pins>;
+
+    pwm0_pins: pwm0-pins {
+        mux {
+            function = "pwm";
+            groups = "pwm0";
+        };
+    };
+};
+
+&rtc {
+    status = "okay";
+    wakeup-source;
 };
