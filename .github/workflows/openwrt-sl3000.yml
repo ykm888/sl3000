@@ -77,11 +77,18 @@ jobs:
         run: |
           cd "${{ env.BUILD_DIR }}"
           MK_FILE=target/linux/mediatek/image/filogic.mk
-          PROFILE=$(grep -E "^define Device/" "$MK_FILE" | awk '{print $2}' | head -1)
+
+          # 提取 Profile 名称，去掉 "Device/"
+          PROFILE=$(grep -E "^define Device/" "$MK_FILE" | head -1 | awk '{print $2}' | sed 's#Device/##')
+
+          # 提取 DTS 名称和目录，去掉多余空格/换行
           DTS_NAME=$(grep -E "^[[:space:]]*DEVICE_DTS[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | xargs)
           DTS_DIR=$(grep -E "^[[:space:]]*DEVICE_DTS_DIR[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | xargs)
-          DTS_FILE="$DTS_DIR/$DTS_NAME.dts"
 
+          # 拼接 DTS 文件路径
+          DTS_FILE="${DTS_DIR}/${DTS_NAME}.dts"
+
+          # 注册到环境变量
           echo "PROFILE=$PROFILE" >> $GITHUB_ENV
           echo "DTS_NAME=$DTS_NAME" >> $GITHUB_ENV
           echo "DTS_FILE=$DTS_FILE" >> $GITHUB_ENV
