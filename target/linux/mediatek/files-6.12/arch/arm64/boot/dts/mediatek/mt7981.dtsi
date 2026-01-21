@@ -1,93 +1,96 @@
-// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
-/dts-v1/;
+/* SPDX-License-Identifier: GPL-2.0-or-later OR MIT */
 
-#include "dt-bindings/interrupt-controller/arm-gic.h"
-#include "dt-bindings/gpio/gpio.h"
-#include "dt-bindings/clock/mt7981-clk.h"
-#include "dt-bindings/reset/mt7981-resets.h"
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/clock/mt7981-clk.h>
+#include <dt-bindings/reset/mt7981-resets.h>
 
-&{/} {
-    #address-cells = <2>;
-    #size-cells = <2>;
-    interrupt-parent = <&gic>;
+/*
+ * 注意：
+ * 1. dtsi 不能有 /dts-v1/
+ * 2. dtsi 不能有根节点 /
+ * 3. dtsi 不能有 soc@0 顶层节点
+ * 4. dtsi 只能提供片段节点
+ */
+
+/* GIC */
+gic: interrupt-controller@c000000 {
+    compatible = "arm,gic-v3";
+    reg = <0x0 0x0c000000 0x0 0x200000>,
+          <0x0 0x0c080000 0x0 0x200000>;
+    #interrupt-cells = <3>;
+    interrupt-controller;
 };
 
-soc: soc@0 {
-    compatible = "simple-bus";
-    #address-cells = <2>;
-    #size-cells = <2>;
-    ranges;
+/* Top Clock Generator */
+topckgen: clock-controller@10000000 {
+    compatible = "mediatek,mt7981-topckgen";
+    reg = <0x0 0x10000000 0x0 0x1000>;
+    #clock-cells = <1>;
+};
 
-    gic: interrupt-controller@c000000 {
-        compatible = "arm,gic-v3";
-        reg = <0x0 0x0c000000 0x0 0x200000>,
-              <0x0 0x0c080000 0x0 0x200000>;
-        #interrupt-cells = <3>;
-        interrupt-controller;
-    };
+/* Peripheral Config */
+pericfg: syscon@10003000 {
+    compatible = "mediatek,mt7981-pericfg", "syscon";
+    reg = <0x0 0x10003000 0x0 0x1000>;
+};
 
-    topckgen: clock-controller@10000000 {
-        compatible = "mediatek,mt7981-topckgen";
-        reg = <0x0 0x10000000 0x0 0x1000>;
-        #clock-cells = <1>;
-    };
+/* Reset Controller */
+resetc: reset-controller@10001000 {
+    compatible = "mediatek,mt7981-reset";
+    reg = <0x0 0x10001000 0x0 0x1000>;
+    #reset-cells = <1>;
+};
 
-    pericfg: syscon@10003000 {
-        compatible = "mediatek,mt7981-pericfg", "syscon";
-        reg = <0x0 0x10003000 0x0 0x1000>;
-    };
+/* GPIO / Pin Controller */
+pio: pinctrl@1000f000 {
+    compatible = "mediatek,mt7981-pinctrl";
+    reg = <0x0 0x1000f000 0x0 0x1000>;
+    #gpio-cells = <2>;
+    gpio-controller;
+};
 
-    resetc: reset-controller@10001000 {
-        compatible = "mediatek,mt7981-reset";
-        reg = <0x0 0x10001000 0x0 0x1000>;
-        #reset-cells = <1>;
-    };
+/* UART0 */
+uart0: serial@11002000 {
+    compatible = "mediatek,mt7986-uart";
+    reg = <0x0 0x11002000 0x0 0x400>;
+    interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&topckgen CLK_UART0>;
+    resets = <&resetc MT7981_RST_UART0>;
+    status = "disabled";
+};
 
-    pio: pinctrl@1000f000 {
-        compatible = "mediatek,mt7981-pinctrl";
-        reg = <0x0 0x1000f000 0x0 0x1000>;
-        #gpio-cells = <2>;
-        gpio-controller;
-    };
+/* MMC */
+mmc0: mmc@11230000 {
+    compatible = "mediatek,mt7981-mmc";
+    reg = <0x0 0x11230000 0x0 0x1000>;
+    interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
+    bus-width = <8>;
+    cap-mmc-highspeed;
+    max-frequency = <200000000>;
+    clocks = <&topckgen CLK_MMC>;
+    resets = <&resetc MT7981_RST_MMC>;
+    status = "disabled";
+};
 
-    uart0: serial@11002000 {
-        compatible = "mediatek,mt7986-uart";
-        reg = <0x0 0x11002000 0x0 0x400>;
-        interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
-        clocks = <&topckgen CLK_UART0>;
-        resets = <&resetc MT7981_RST_UART0>;
-        status = "disabled";
-    };
+/* Ethernet */
+eth: ethernet@15100000 {
+    compatible = "mediatek,mt7981-eth";
+    reg = <0x0 0x15100000 0x0 0x80000>;
+    interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&topckgen CLK_ETH>;
+    resets = <&resetc MT7981_RST_ETH>;
+    status = "disabled";
+};
 
-    mmc0: mmc@11230000 {
-        compatible = "mediatek,mt7981-mmc";
-        reg = <0x0 0x11230000 0x0 0x1000>;
-        interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>;
-        bus-width = <8>;
-        cap-mmc-highspeed;
-        max-frequency = <200000000>;
-        clocks = <&topckgen CLK_MMC>;
-        resets = <&resetc MT7981_RST_MMC>;
-        status = "disabled";
-    };
-
-    eth: ethernet@15100000 {
-        compatible = "mediatek,mt7981-eth";
-        reg = <0x0 0x15100000 0x0 0x80000>;
-        interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
-        clocks = <&topckgen CLK_ETH>;
-        resets = <&resetc MT7981_RST_ETH>;
-        status = "disabled";
-    };
-
-    spi0: spi@1100a000 {
-        compatible = "mediatek,mt7981-spi";
-        reg = <0x0 0x1100a000 0x0 0x1000>;
-        interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL_HIGH>;
-        clocks = <&topckgen CLK_SPI0>;
-        resets = <&resetc MT7981_RST_SPI0>;
-        #address-cells = <1>;
-        #size-cells = <0>;
-        status = "disabled";
-    };
+/* SPI */
+spi0: spi@1100a000 {
+    compatible = "mediatek,mt7981-spi";
+    reg = <0x0 0x1100a000 0x0 0x1000>;
+    interrupts = <GIC_SPI 129 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&topckgen CLK_SPI0>;
+    resets = <&resetc MT7981_RST_SPI0>;
+    #address-cells = <1>;
+    #size-cells = <0>;
+    status = "disabled";
 };
