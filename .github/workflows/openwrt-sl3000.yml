@@ -81,58 +81,33 @@ jobs:
       - name: Validate DTS & image definition (3-piece check)
         run: |
           cd "${{ env.BUILD_DIR }}"
-
           echo "=== [DTS Path Check] ==="
-          if [ ! -f "${{ env.DTS_FILE }}" ]; then
-            echo "❌ DTS not found: ${PWD}/${{ env.DTS_FILE }}"
-            exit 1
-          fi
-          echo "✅ DTS exists: ${PWD}/${{ env.DTS_FILE }}"
+          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS not found"; exit 1; }
+          echo "✅ DTS exists"
 
           echo "=== [MK File Check] ==="
-          if [ ! -f "${{ env.MK_FILE }}" ]; then
-            echo "❌ MK file not found: ${PWD}/${{ env.MK_FILE }}"
-            exit 1
-          fi
-          echo "✅ MK exists: ${PWD}/${{ env.MK_FILE }}"
+          test -f "${{ env.MK_FILE }}" || { echo "❌ MK not found"; exit 1; }
+          echo "✅ MK exists"
 
           echo "=== [Device Definition Check] ==="
-          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "❌ Device/${{ env.PROFILE }} not defined in ${{
-              env.MK_FILE }}"
-            exit 1
-          fi
-          echo "✅ Device/${{ env.PROFILE }} defined"
+          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || { echo "❌ Device not defined"; exit 1; }
+          echo "✅ Device defined"
 
           echo "=== [DEVICE_DTS Check] ==="
-          if ! grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "❌ DEVICE_DTS mismatch in ${{
-              env.MK_FILE }}"
-            exit 1
-          fi
-          echo "✅ DEVICE_DTS aligned: ${{ env.DTS_NAME }}"
+          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || { echo "❌ DEVICE_DTS mismatch"; exit 1; }
+          echo "✅ DEVICE_DTS aligned"
 
           echo "=== [DEVICE_DTS_DIR Check] ==="
           MK_DTS_DIR=$(grep -E "^[[:space:]]*DEVICE_DTS_DIR[[:space:]]*:=" "${{ env.MK_FILE }}" | head -1 | awk -F':=' '{print $2}' | xargs)
-
-          if [ -z "$MK_DTS_DIR" ]; then
-            echo "❌ DEVICE_DTS_DIR not found in ${{ env.MK_FILE }}"
-            exit 1
-          fi
-
           echo "MK declares DEVICE_DTS_DIR as: '$MK_DTS_DIR'"
-
-          if [ ! -d "$MK_DTS_DIR" ] && [ ! -d "${PWD}/$MK_DTS_DIR" ]; then
-            echo "⚠️ Warning: DEVICE_DTS_DIR directory not found on filesystem:"
-            echo "   - $MK_DTS_DIR"
-            echo "   - ${PWD}/$MK_DTS_DIR"
-            echo "继续构建，但建议你确认目录是否正确。"
+          if [ ! -d "${PWD}/$MK_DTS_DIR" ]; then
+            echo "⚠️ Warning: DTS dir not found: ${PWD}/$MK_DTS_DIR"
           else
-            echo "✅ DEVICE_DTS_DIR directory looks valid."
+            echo "✅ DTS dir exists"
           fi
 
       # ---------------------------------------------------------
-      # 3. Feeds & 工具链（可复用缓存）
+      # 3. Feeds & 工具链（强制清理缓存）
       # ---------------------------------------------------------
       - name: Setup feeds
         run: |
@@ -140,6 +115,11 @@ jobs:
           rm -rf feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      - name: Clean toolchain before build
+        run: |
+          cd "${{ env.BUILD_DIR }}"
+          rm -rf build_dir/toolchain-* staging_dir/toolchain-*
 
       - name: Build tools
         run: |
@@ -152,25 +132,21 @@ jobs:
           make toolchain/install -j$(nproc) V=s
 
       # ---------------------------------------------------------
-      # 4. DTS 校验：此时 tools + toolchain 已就绪，kernel-dtc 可用
+      # 4. DTS 校验：此时 tools + toolchain 已就绪
       # ---------------------------------------------------------
       - name: DTS validation via OpenWrt kernel-dtc
         run: |
           cd "${{ env.BUILD_DIR }}"
           mkdir -p logs/dts
-
           echo "=== [DTS Header Preview] ==="
           head -15 "${{ env.DTS_FILE }}" || true
-
-          echo "=== [DTS Validation] make target/linux/compile CHECK=1 V=s ==="
+          echo "=== [DTS Validation] ==="
           if ! make target/linux/compile CHECK=1 V=s -j1; then
-            echo "❌ DTS validation failed via kernel-dtc"
-            echo "=== [DTS Hexdump First 256 bytes] ==="
+            echo "❌ DTS validation failed"
             hexdump -C "${{ env.DTS_FILE }}" | head -40 || true
             exit 1
           fi
-
-          echo "✅ DTS validation passed via kernel-dtc"
+          echo "✅ DTS validation passed"
 
       # ---------------------------------------------------------
       # 5. Target & Packages & Image
@@ -200,23 +176,13 @@ jobs:
         run: |
           cd "${{ env.BUILD_DIR }}"
           echo "=== [Firmware List] ==="
-          if [ ! -d "${{ env.TARGET_DIR }}/${{ env.PROFILE }}" ]; then
-            echo "❌ No firmware directory: ${{
-              env.TARGET_DIR }}/${{ env.PROFILE }}"
-            ls -R "${{ env.TARGET_DIR }}" || true
-            exit 1
-          fi
-
-          ls -lh "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"
-
+          ls -lh "${{ env.TARGET_DIR }}/${{ env.PROFILE }}" || { echo "❌ No firmware found"; exit 1; }
           echo "=== [MD5 Checksum] ==="
           md5sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
-
           echo "=== [File Type Check] ==="
           for bin in "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/*; do
             file "$bin" || true
           done
-
           echo "✅ Firmware validation passed"
 
       - name: Upload artifacts
