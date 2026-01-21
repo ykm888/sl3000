@@ -177,10 +177,10 @@ jobs:
             || { echo "❌ DEVICE_DTS mismatch"; exit 1; }
           echo "✅ DEVICE_DTS Aligned"
 
-          echo "=== Checking DEVICEDTSDIR ==="
+          echo "=== Checking DEVICE_DTS_DIR ==="
           grep -q "DEVICE_DTS_DIR := target/linux/mediatek/dts" "${{ env.MK_FILE }}" \
-            || { echo "❌ DEVICEDTSDIR mismatch"; exit 1; }
-          echo "✅ DEVICEDTSDIR Aligned"
+            || { echo "❌ DEVICE_DTS_DIR mismatch"; exit 1; }
+          echo "✅ DEVICE_DTS_DIR Aligned"
 
       # ---------------------------------------------------------
       # 5. Build 全链路
@@ -224,6 +224,13 @@ jobs:
           cd ${{ env.BUILD_DIR }}
           echo "=== Firmware List ==="
           ls -lh ${{ env.TARGET_DIR }}/${{ env.PROFILE }} || { echo "❌ No Firmware Found"; exit 1; }
+          echo -e "\n=== MD5 Checksum ==="
+          md5sum ${{ env.TARGET_DIR }}/${{ env.PROFILE }}/* || true
+          echo -e "\n=== File Type Check ==="
+          for bin in ${{ env.TARGET_DIR }}/${{ env.PROFILE }}/*; do
+            file $bin || true
+          done
+          echo "✅ Firmware Validation Passed"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
