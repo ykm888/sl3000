@@ -103,6 +103,8 @@ jobs:
           # 强制清理所有控制字符
           LC_ALL=C tr -cd '\11\12\15\40-\176' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
           mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
+          # 确保根节点行没有前导空格
+          sed -i 's/^[[:space:]]*\/ {/\/ {/' "${{ env.DTS_FILE }}"
 
           echo "=== DTS Header Check (First 15 Lines) ==="
           head -15 "${{ env.DTS_FILE }}"
