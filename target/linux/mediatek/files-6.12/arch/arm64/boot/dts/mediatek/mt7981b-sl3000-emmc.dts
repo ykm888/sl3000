@@ -1,4 +1,3 @@
-
 /dts-v1/;
 
 /* SoC  */
@@ -16,13 +15,14 @@
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
-	/*  */
+	/* Regulators */
 	reg_3p3v: regulator-3p3v {
 		compatible = "regulator-fixed";
 		regulator-name = "fixed-3.3v";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	reg_1p8v: regulator-1p8v {
@@ -31,6 +31,7 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	/* CPU OPP */
@@ -39,17 +40,20 @@
 
 		opp-650000000 {
 			opp-hz = /bits/ 64 <650000000>;
-			opp-microvolt = <800000>;
+			opp-microvolt-min = <800000>;
+			opp-microvolt-max = <800000>;
 		};
 
 		opp-850000000 {
 			opp-hz = /bits/ 64 <850000000>;
-			opp-microvolt = <850000>;
+			opp-microvolt-min = <850000>;
+			opp-microvolt-max = <850000>;
 		};
 
 		opp-1000000000 {
 			opp-hz = /bits/ 64 <1000000000>;
-			opp-microvolt = <900000>;
+			opp-microvolt-min = <900000>;
+			opp-microvolt-max = <900000>;
 		};
 	};
 
@@ -76,7 +80,7 @@
 		};
 	};
 
-	/*  */
+	/* Keys */
 	keys {
 		compatible = "gpio-keys";
 
