@@ -1,0 +1,86 @@
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt65xx.h>
+#include "mt7981b.dtsi"
+
+/ {
+    model = "SL-3000 eMMC Board (Ultimate Edition)";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0x40000000 0x40000000>;
+    };
+
+    chosen {
+        stdout-path = "serial0:115200n8";
+        bootargs = "console=ttyS0,115200n8";
+    };
+
+    aliases {
+        serial0 = &uart0;
+        led-boot = &led_status;
+        led-failsafe = &led_status;
+        led-running = &led_status;
+        led-upgrade = &led_status;
+    };
+
+    leds {
+        compatible = "gpio-leds";
+
+        led_status: status {
+            label = "sl3000:blue:status";
+            gpios = <&gpio 22 GPIO_ACTIVE_HIGH>;
+            default-state = "off";
+        };
+    };
+};
+
+/* UART */
+&uart0 {
+    status = "okay";
+};
+
+/* Ethernet */
+&eth {
+    status = "okay";
+};
+
+&gmac0 {
+    status = "okay";
+    phy-mode = "rgmii";
+    mediatek,tx-delay-ps = <2000>;
+    mediatek,rx-delay-ps = <2000>;
+    phy-handle = <&phy0>;
+};
+
+&mdio {
+    status = "okay";
+
+    phy0: ethernet-phy@0 {
+        reg = <0>;
+    };
+};
+
+/* eMMC */
+&mmc0 {
+    status = "okay";
+    bus-width = <8>;
+    max-frequency = <52000000>;
+    cap-mmc-highspeed;
+    vmmc-supply = <&reg_3p3v>;
+    vqmmc-supply = <&reg_1p8v>;
+};
+
+/* WiFi */
+&wifi {
+    status = "okay";
+};
+
+/* GPIO */
+&pio {
+    status = "okay";
+};
