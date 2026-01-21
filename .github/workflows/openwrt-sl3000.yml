@@ -9,9 +9,7 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
-  # 直接写死 DTS 文件名，避免 env 内部引用
   DTS_FILE: target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
-  DTS_MK: ""
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: /mnt/openwrt
@@ -28,14 +26,13 @@ jobs:
           fetch-depth: 1
 
       # ---------------------------------------------------------
-      # 0. 自动检测 + 修复 DTS 路径（适配实际目录）
+      # 0. 自动检测 DTS 路径
       # ---------------------------------------------------------
       - name: Auto Detect & Fix DTS Path
         run: |
           echo "=== Auto Detecting DTS Path ==="
           CORRECT_DTS="target/linux/mediatek/dts/${{ env.DTS_NAME }}.dts"
-          
-          # 校验 DTS 是否存在
+
           if [ -f "$CORRECT_DTS" ]; then
             echo "Found correct DTS at: $CORRECT_DTS"
             echo "DTS_FILE=$CORRECT_DTS" >> $GITHUB_ENV
@@ -44,7 +41,7 @@ jobs:
             echo "Expected: $CORRECT_DTS"
             exit 1
           fi
-          
+
           echo "=== DTS Path Auto-Fix Completed ==="
 
       # ---------------------------------------------------------
@@ -100,11 +97,9 @@ jobs:
 
           echo "Using DTS_FILE=${{ env.DTS_FILE }}"
 
-          # 清理 BOM 和换行符
+          # 清理 BOM 和 CRLF
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
           sed -i 's/\r//g' "${{ env.DTS_FILE }}" || true
-          tr -d '\000-\010\013\014\016-\037' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
-          mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
           echo "=== DTS Header Check (First 15 Lines) ==="
           head -15 "${{ env.DTS_FILE }}"
@@ -117,12 +112,13 @@ jobs:
           echo "✅ DTS Syntax Check Passed"
 
       # ---------------------------------------------------------
-      # 3. DTS 深度分析（include / label / 节点冲突）
+      # 3. DTS 深度分析
       # ---------------------------------------------------------
       - name: Deep DTS Analysis
         run: |
           cd ${{ env.BUILD_DIR }}
           mkdir -p logs/dts
+
           DTS="${{ env.DTS_FILE }}"
           DTB_OUT="logs/dts/${{ env.DTS_NAME }}.dtb"
           DUMP_DTS="logs/dts/${{ env.DTS_NAME }}.dump.dts"
@@ -130,42 +126,38 @@ jobs:
           echo "=== Rebuild DTB for Analysis ==="
           dtc -I dts -O dtb -o "$DTB_OUT" "$DTS"
 
-          echo "=== Dump DTB Back to DTS (Normalized) ==="
+          echo "=== Dump DTB Back to DTS ==="
           dtc -I dtb -O dts -o "$DUMP_DTS" "$DTB_OUT"
 
           echo "=== DTS Include Dependency Check ==="
-          grep -E '^#include' "$DTS" || echo "ℹ️ No #include lines found (OK if base DTS)"
+          grep -E '^#include' "$DTS" || echo "ℹ️ No #include lines found"
 
           echo "=== DTS Label Duplicate Check ==="
           awk '/:/{print $1}' "$DTS" | sed 's/:$//' | sort | uniq -d > logs/dts/duplicate_labels.txt || true
           if [ -s logs/dts/duplicate_labels.txt ]; then
-            echo "⚠️ WARNING: Duplicate labels detected:"
+            echo "⚠️ Duplicate labels detected:"
             cat logs/dts/duplicate_labels.txt
           else
-            echo "✅ No duplicate labels detected"
+            echo "✅ No duplicate labels"
           fi
 
           echo "=== DTS Node Path Conflict Check ==="
-          grep -E '^[[:space:]]*[a-zA-Z0-9,_-]+(@[0-9a-fA-Fx]+)?[[:space:]]*\{' "$DTS" \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*\{.*$//' \
+          grep -E '^[[:space:]][a-zA-Z0-9,_-]+(@[0-9a-fA-Fx]+)?[[:space:]]\{' "$DTS" \
+            | sed 's/^[[:space:]]//;s/[[:space:]]\{.*$//' \
             | sort | uniq -d > logs/dts/duplicate_nodes.txt || true
           if [ -s logs/dts/duplicate_nodes.txt ]; then
-            echo "⚠️ WARNING: Potential duplicate node names:"
+            echo "⚠️ Duplicate nodes detected:"
             cat logs/dts/duplicate_nodes.txt
           else
-            echo "✅ No obvious duplicate node names"
+            echo "✅ No duplicate nodes"
           fi
 
-          echo "=== DTB Structural Dump Summary ==="
-          head -40 "$DUMP_DTS" || true
-
       # ---------------------------------------------------------
-      # 4. 三件套一致性检查（DTS + MK + PROFILE）
+      # 4. 三件套一致性检查
       # ---------------------------------------------------------
       - name: Full 3-piece Consistency Check & Auto-fix
         run: |
           cd ${{ env.BUILD_DIR }}
-          set -e
 
           echo "=== Checking DTS File Exists ==="
           test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS Missing"; exit 1; }
@@ -176,30 +168,22 @@ jobs:
           echo "✅ MK Exists"
 
           echo "=== Checking MK Device Definition ==="
-          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
-            echo "❌ Device ${PROFILE} not defined in MK"
-            exit 1
-          fi
+          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" \
+            || { echo "❌ Device not defined in MK"; exit 1; }
           echo "✅ Device Definition Exists"
 
           echo "=== Checking DEVICE_DTS Alignment ==="
-          if ! grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
-            echo "❌ DEVICE_DTS in MK does not match DTS_NAME"
-            exit 1
-          fi
+          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" \
+            || { echo "❌ DEVICE_DTS mismatch"; exit 1; }
           echo "✅ DEVICE_DTS Aligned"
 
-          echo "=== Checking DEVICE_DTS_DIR in MK ==="
-          if ! grep -q "DEVICE_DTS_DIR := target/linux/mediatek/dts" "${{ env.MK_FILE }}"; then
-            echo "❌ DEVICE_DTS_DIR in MK does not match actual path"
-            exit 1
-          fi
-          echo "✅ DEVICE_DTS_DIR Aligned"
-
-          echo "✅ 3-piece Consistency Check Passed"
+          echo "=== Checking DEVICEDTSDIR ==="
+          grep -q "DEVICE_DTS_DIR := target/linux/mediatek/dts" "${{ env.MK_FILE }}" \
+            || { echo "❌ DEVICEDTSDIR mismatch"; exit 1; }
+          echo "✅ DEVICEDTSDIR Aligned"
 
       # ---------------------------------------------------------
-      # 5. Feeds / Tools / Toolchain / Target / Packages / Firmware
+      # 5. Build 全链路
       # ---------------------------------------------------------
       - name: Setup Feeds
         run: |
@@ -239,19 +223,12 @@ jobs:
         run: |
           cd ${{ env.BUILD_DIR }}
           echo "=== Firmware List ==="
-          ls -lh ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || { echo "❌ No Firmware Found"; exit 1; }
-          echo -e "\n=== MD5 Checksum ==="
-          md5sum ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}* || true
-          echo -e "\n=== File Type Check ==="
-          for bin in ${{ env.TARGET_DIR }}/*${{ env.PROFILE }}*.bin; do
-            file $bin || true
-          done
-          echo "✅ Firmware Validation Passed"
+          ls -lh ${{ env.TARGET_DIR }}/${{ env.PROFILE }} || { echo "❌ No Firmware Found"; exit 1; }
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-build-${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/**/*${{ env.PROFILE }}*
+            ${{ env.TARGET_DIR }}/${{ env.PROFILE }}
             ${{ env.BUILD_DIR }}/logs/dts/*
