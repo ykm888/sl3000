@@ -100,6 +100,9 @@ jobs:
           # 清理 BOM 和 CRLF
           sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
           sed -i 's/\r//g' "${{ env.DTS_FILE }}" || true
+          # 强制清理所有控制字符
+          LC_ALL=C tr -cd '\11\12\15\40-\176' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
+          mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
 
           echo "=== DTS Header Check (First 15 Lines) ==="
           head -15 "${{ env.DTS_FILE }}"
@@ -107,6 +110,7 @@ jobs:
           echo "=== Validating DTS Syntax ==="
           if ! dtc -I dts -O dtb -o /dev/null "${{ env.DTS_FILE }}"; then
             echo "ERROR: DTS Syntax Error!"
+            hexdump -C "${{ env.DTS_FILE }}" | head -40
             exit 1
           fi
           echo "✅ DTS Syntax Check Passed"
