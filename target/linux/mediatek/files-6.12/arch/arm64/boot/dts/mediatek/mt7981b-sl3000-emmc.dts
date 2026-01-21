@@ -1,6 +1,7 @@
 /dts-v1/;
 
-#include "mt7981b.dtsi"
+/* ===== SoC 基础层 ===== */
+#include <mediatek/mt7981b.dtsi>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 
