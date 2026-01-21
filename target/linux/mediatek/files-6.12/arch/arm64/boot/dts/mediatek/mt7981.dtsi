@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later OR MIT */
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/gpio/gpio.h>
@@ -39,12 +39,14 @@ pio: pinctrl@1000f000 {
     compatible = "mediatek,mt7981-pinctrl";
     reg = <0x0 0x1000f000 0x0 0x1000>;
     #gpio-cells = <2>;
+    #address-cells = <1>;
+    #size-cells = <0>;
     gpio-controller;
 };
 
 /* UART0 */
 uart0: serial@11002000 {
-    compatible = "mediatek,mt7986-uart";
+    compatible = "mediatek,mt7981-uart";
     reg = <0x0 0x11002000 0x0 0x400>;
     interrupts = <GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>;
     clocks = <&topckgen CLK_UART0>;
@@ -86,4 +88,3 @@ spi0: spi@1100a000 {
     #size-cells = <0>;
     status = "disabled";
 };
-
