@@ -9,7 +9,7 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
-  DTS_FILE: target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
+  DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: /mnt/openwrt
@@ -31,7 +31,7 @@ jobs:
       - name: Auto Detect & Fix DTS Path
         run: |
           echo "=== Auto Detecting DTS Path ==="
-          CORRECT_DTS="target/linux/mediatek/dts/${{ env.DTS_NAME }}.dts"
+          CORRECT_DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${{ env.DTS_NAME }}.dts"
 
           if [ -f "$CORRECT_DTS" ]; then
             echo "Found correct DTS at: $CORRECT_DTS"
@@ -184,7 +184,7 @@ jobs:
           echo "✅ DEVICE_DTS Aligned"
 
           echo "=== Checking DEVICE_DTS_DIR ==="
-          grep -q "DEVICE_DTS_DIR := target/linux/mediatek/dts" "${{ env.MK_FILE }}" \
+          grep -q "DEVICE_DTS_DIR := target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek" "${{ env.MK_FILE }}" \
             || { echo "❌ DEVICE_DTS_DIR mismatch"; exit 1; }
           echo "✅ DEVICE_DTS_DIR Aligned"
 
@@ -245,3 +245,4 @@ jobs:
           path: |
             ${{ env.TARGET_DIR }}/${{ env.PROFILE }}
             ${{ env.BUILD_DIR }}/logs/dts/*
+
