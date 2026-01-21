@@ -5,14 +5,6 @@
 #include <dt-bindings/clock/mt7981-clk.h>
 #include <dt-bindings/reset/mt7981-resets.h>
 
-/*
- * 注意：
- * 1. dtsi 不能有 /dts-v1/
- * 2. dtsi 不能有根节点 /
- * 3. dtsi 不能有 soc@0 顶层节点
- * 4. dtsi 只能提供片段节点
- */
-
 /* GIC */
 gic: interrupt-controller@c000000 {
     compatible = "arm,gic-v3";
@@ -94,3 +86,4 @@ spi0: spi@1100a000 {
     #size-cells = <0>;
     status = "disabled";
 };
+
