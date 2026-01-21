@@ -9,9 +9,8 @@ permissions:
 env:
   PROFILE: sl3000-emmc
   DTS_NAME: mt7981b-sl3000-emmc
-  # 核心修改：对齐实际 DTS 路径（target/linux/mediatek/dts/）
-  DTS_FILE: target/linux/mediatek/dts/${{ env.DTS_NAME }}.dts
-  # 移除无效的 DTS_MK 配置（无需单独维护 DTS Makefile）
+  # 直接写死 DTS 文件名，避免 env 内部引用
+  DTS_FILE: target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
   DTS_MK: ""
   MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
