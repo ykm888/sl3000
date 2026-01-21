@@ -1,12 +1,5 @@
 /dts-v1/;
 
-/* ===== dt-bindings（Linux 6.12 官方路径） ===== */
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/linux-event-codes.h>
-#include <dt-bindings/leds/common.h>
-#include <dt-bindings/interrupt-controller/irq.h>
-#include <dt-bindings/pinctrl/mt65xx.h>
-
 /* ===== SoC 基础层 ===== */
 #include "../../../../../arch/arm64/boot/dts/mediatek/mt7981b.dtsi"
 
@@ -64,28 +57,25 @@
 	};
 
 	/* ===========================
-	 * LED（带触发器）
+	 * LED（带触发器，修复颜色属性）
 	 =========================== */
 	leds {
 		compatible = "gpio-leds";
 
 		ledstatusgreen: status_green {
-			function = LED_FUNCTION_STATUS;
-			color = <LED_COLOR_ID_GREEN>;
+			label = "sl3000:green:status";
 			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "heartbeat";
 		};
 
 		ledstatusred: status_red {
-			function = LED_FUNCTION_FAULT;
-			color = <LED_COLOR_ID_RED>;
+			label = "sl3000:red:fault";
 			gpios = <&pio 8 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "panic";
 		};
 
 		ledstatusblue: status_blue {
-			function = LED_FUNCTION_WLAN;
-			color = <LED_COLOR_ID_BLUE>;
+			label = "sl3000:blue:wlan";
 			gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "phy0tpt";
 		};
@@ -100,14 +90,14 @@
 		reset {
 			label = "reset";
 			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_RESTART>;
+			linux,code = <0x198>; /* KEY_RESTART */
 			debounce-interval = <10>;
 		};
 
 		wps {
 			label = "wps";
 			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_WPS_BUTTON>;
+			linux,code = <0x211>; /* KEY_WPS_BUTTON */
 			debounce-interval = <10>;
 		};
 	};
@@ -152,7 +142,7 @@
 };
 
 /* ===========================
- * reserved-memory（扩展 SoC 节点）
+ * reserved-memory
  =========================== */
 &reserved_memory {
 	wifi_emi: wifi@47c80000 {
@@ -180,7 +170,7 @@
 };
 
 &{/thermal-zones} {
-	/* thermal-zones 是容器节点，不覆盖子节点 */
+	/* 容器节点，不覆盖子节点 */
 };
 
 /* ===========================
@@ -268,8 +258,8 @@
 	max-frequency = <200000000>;
 
 	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&mmc0_pins_default>;
-	pinctrl-1 = <&mmc0_pins_uhs>;
+	pinctrl-0 = <&mmc0pinsdefault>;
+	pinctrl-1 = <&mmc0pinsuhs>;
 
 	cap-mmc-highspeed;
 	mmc-hs200-1_8v;
@@ -282,12 +272,13 @@
 };
 
 /* ===========================
- * SPI NOR
+ * SPI NOR（修复分区节点属性）
  =========================== */
 &{/soc/spi@1100a000} {
 	status = "okay";
 	num-cs = <1>;
 	pinctrl-names = "default";
+	pinctrl-0 = <&spi0_pins>;
 
 	flash@0 {
 		compatible = "jedec,spi-nor";
@@ -340,20 +331,27 @@
 };
 
 /* ===========================
- * Pinmux（eMMC）
+ * Pinmux（eMMC + SPI 补充）
  =========================== */
 &pio {
-	mmc0_pins_default: mmc0-pins-default {
+	mmc0pinsdefault: mmc0-pins-default {
 		mux {
 			function = "flash";
 			groups = "emmc_45";
 		};
 	};
 
-	mmc0_pins_uhs: mmc0-pins-uhs {
+	mmc0pinsuhs: mmc0-pins-uhs {
 		mux {
 			function = "flash";
 			groups = "emmc_45";
+		};
+	};
+
+	spi0_pins: spi0-pins {
+		mux {
+			function = "spi";
+			groups = "spi0";
 		};
 	};
 };
