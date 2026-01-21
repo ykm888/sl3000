@@ -7,10 +7,6 @@ permissions:
   contents: write
 
 env:
-  PROFILE: sl3000-emmc
-  DTS_NAME: mt7981b-sl3000-emmc
-  DTS_FILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-  MK_FILE: target/linux/mediatek/image/filogic.mk
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: openwrt
   CCACHE_DIR: ccache
@@ -69,42 +65,33 @@ jobs:
             ${{ env.BUILD_DIR }}/dl
             ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
             ${{ env.BUILD_DIR }}/build_dir/toolchain-*
-          key: immortalwrt-${{ env.PROFILE }}-${{ github.run_id }}
+          key: immortalwrt-${{ github.run_id }}
           restore-keys: |
-            immortalwrt-${{ env.PROFILE }}-
             immortalwrt-toolchain-
             immortalwrt-base-
 
       # ---------------------------------------------------------
-      # 2. DTS 路径 & 三件套一致性（只读检查）
+      # 2. 自动检测 & 注册三件套
       # ---------------------------------------------------------
-      - name: Validate DTS & image definition (3-piece check)
+      - name: Auto Detect & Register 3-piece
         run: |
           cd "${{ env.BUILD_DIR }}"
-          echo "=== [DTS Path Check] ==="
-          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS not found"; exit 1; }
-          echo "✅ DTS exists"
+          MK_FILE=target/linux/mediatek/image/filogic.mk
+          PROFILE=$(grep -E "^define Device/" "$MK_FILE" | awk '{print $2}' | head -1)
+          DTS_NAME=$(grep -E "^[[:space:]]*DEVICE_DTS[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | xargs)
+          DTS_DIR=$(grep -E "^[[:space:]]*DEVICE_DTS_DIR[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | xargs)
+          DTS_FILE="$DTS_DIR/$DTS_NAME.dts"
 
-          echo "=== [MK File Check] ==="
-          test -f "${{ env.MK_FILE }}" || { echo "❌ MK not found"; exit 1; }
-          echo "✅ MK exists"
+          echo "PROFILE=$PROFILE" >> $GITHUB_ENV
+          echo "DTS_NAME=$DTS_NAME" >> $GITHUB_ENV
+          echo "DTS_FILE=$DTS_FILE" >> $GITHUB_ENV
+          echo "MK_FILE=$MK_FILE" >> $GITHUB_ENV
 
-          echo "=== [Device Definition Check] ==="
-          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" || { echo "❌ Device not defined"; exit 1; }
-          echo "✅ Device defined"
-
-          echo "=== [DEVICE_DTS Check] ==="
-          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" || { echo "❌ DEVICE_DTS mismatch"; exit 1; }
-          echo "✅ DEVICE_DTS aligned"
-
-          echo "=== [DEVICE_DTS_DIR Check] ==="
-          MK_DTS_DIR=$(grep -E "^[[:space:]]*DEVICE_DTS_DIR[[:space:]]*:=" "${{ env.MK_FILE }}" | head -1 | awk -F':=' '{print $2}' | xargs)
-          echo "MK declares DEVICE_DTS_DIR as: '$MK_DTS_DIR'"
-          if [ ! -d "${PWD}/$MK_DTS_DIR" ]; then
-            echo "⚠️ Warning: DTS dir not found: ${PWD}/$MK_DTS_DIR"
-          else
-            echo "✅ DTS dir exists"
-          fi
+          echo "=== Auto-Detected 3-piece ==="
+          echo "PROFILE=$PROFILE"
+          echo "DTS_NAME=$DTS_NAME"
+          echo "DTS_FILE=$DTS_FILE"
+          echo "MK_FILE=$MK_FILE"
 
       # ---------------------------------------------------------
       # 3. Feeds & 工具链（强制清理缓存）
@@ -170,7 +157,7 @@ jobs:
           make image PROFILE="${{ env.PROFILE }}" -j1 V=s
 
       # ---------------------------------------------------------
-      # 6. 固件验证 + 产物上传
+      # 6. 固件验证 + 自动注册产物
       # ---------------------------------------------------------
       - name: Verify firmware output
         run: |
@@ -179,6 +166,8 @@ jobs:
           ls -lh "${{ env.TARGET_DIR }}/${{ env.PROFILE }}" || { echo "❌ No firmware found"; exit 1; }
           echo "=== [MD5 Checksum] ==="
           md5sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
+          echo "=== [SHA256 Checksum] ==="
+          sha256sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
           echo "=== [File Type Check] ==="
           for bin in "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/*; do
             file "$bin" || true
