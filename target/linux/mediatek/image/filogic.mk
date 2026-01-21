@@ -19,7 +19,7 @@ define Device/sl3000-emmc
   # 核心修复：DTS 路径与编译配置
   # 指向 target/linux/mediatek/dts 目录下的 DTS 文件
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := target/linux/mediatek/dts
+  DEVICE_DTS_DIR := target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
   DEVICE_DTS_CONFIG := config@1  # MTK 平台必须，指定 DTS 配置
 
   # sysupgrade 兼容性强化
@@ -80,3 +80,4 @@ TARGET_DEVICES += sl3000-emmc
 
 # 构建镜像
 $(eval $(call BuildImage))
+
