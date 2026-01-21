@@ -1,4 +1,4 @@
-name: ImmortalWrt Engineering Build
+name: ImmortalWrt SL3000 Engineering Build
 
 on:
   workflow_dispatch:
@@ -20,33 +20,14 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # ---------------------------------------------------------
+      # 0. 基础准备：拉代码 + 磁盘清理 + 搬迁到 /mnt
+      # ---------------------------------------------------------
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # ---------------------------------------------------------
-      # 0. 自动检测 DTS 路径
-      # ---------------------------------------------------------
-      - name: Auto Detect & Fix DTS Path
-        run: |
-          echo "=== Auto Detecting DTS Path ==="
-          CORRECT_DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/${{ env.DTS_NAME }}.dts"
-
-          if [ -f "$CORRECT_DTS" ]; then
-            echo "Found correct DTS at: $CORRECT_DTS"
-            echo "DTS_FILE=$CORRECT_DTS" >> $GITHUB_ENV
-          else
-            echo "ERROR: DTS not found at correct path!"
-            echo "Expected: $CORRECT_DTS"
-            exit 1
-          fi
-
-          echo "=== DTS Path Auto-Fix Completed ==="
-
-      # ---------------------------------------------------------
-      # 1. Pre-build Disk Optimization
-      # ---------------------------------------------------------
       - name: Pre-build Disk Optimization
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
@@ -56,25 +37,31 @@ jobs:
 
       - name: Move source to /mnt
         run: |
-          sudo mkdir -p ${{ env.BUILD_DIR }}
-          sudo rsync -a --delete . ${{ env.BUILD_DIR }}
-          sudo chown -R $USER:$USER ${{ env.BUILD_DIR }}
+          sudo mkdir -p "${{ env.BUILD_DIR }}"
+          sudo rsync -a --delete . "${{ env.BUILD_DIR }}"
+          sudo chown -R "$USER:$USER" "${{ env.BUILD_DIR }}"
+          df -h
 
-      - name: Install dependencies
+      # ---------------------------------------------------------
+      # 1. 构建环境：依赖 + ccache + 缓存
+      # ---------------------------------------------------------
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison gawk gettext \
-            libncurses5-dev libssl-dev python3 unzip zlib1g-dev file wget curl git \
-            ccache time pkg-config libelf-dev rsync tar jq ca-certificates device-tree-compiler
+          sudo apt-get install -y \
+            build-essential flex bison gawk gettext \
+            libncurses5-dev libssl-dev python3 unzip zlib1g-dev \
+            file wget curl git ccache time pkg-config libelf-dev \
+            rsync tar jq ca-certificates device-tree-compiler
 
       - name: Setup ccache
         run: |
-          sudo mkdir -p ${{ env.CCACHE_DIR }}
-          sudo chown -R $USER:$USER ${{ env.CCACHE_DIR }}
-          export CCACHE_DIR=${{ env.CCACHE_DIR }}
+          sudo mkdir -p "${{ env.CCACHE_DIR }}"
+          sudo chown -R "$USER:$USER" "${{ env.CCACHE_DIR }}"
+          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> "$GITHUB_ENV"
+          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           ccache --max-size=5G
           ccache -z
-          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
 
       - name: Restore caches
         uses: actions/cache@v4
@@ -87,162 +74,150 @@ jobs:
           key: immortalwrt-${{ env.PROFILE }}-${{ github.run_id }}
           restore-keys: |
             immortalwrt-${{ env.PROFILE }}-
+            immortalwrt-toolchain-
+            immortalwrt-base-
 
       # ---------------------------------------------------------
-      # 2. DTS 清理 + 基础语法校验
+      # 2. DTS 路径 & 三件套一致性（只读检查）
       # ---------------------------------------------------------
-      - name: Clean & Validate DTS File
+      - name: Validate DTS & image definition (3-piece check)
         run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
 
-          echo "Using DTS_FILE=${{ env.DTS_FILE }}"
-
-          # 清理 BOM 和 CRLF
-          sed -i '1s/^\xEF\xBB\xBF//' "${{ env.DTS_FILE }}" || true
-          sed -i 's/\r//g' "${{ env.DTS_FILE }}" || true
-          # 强制清理所有控制字符
-          LC_ALL=C tr -cd '\11\12\15\40-\176' < "${{ env.DTS_FILE }}" > "${{ env.DTS_FILE }}.clean"
-          mv "${{ env.DTS_FILE }}.clean" "${{ env.DTS_FILE }}"
-          # 确保根节点行没有前导空格
-          sed -i 's/^[[:space:]]*\/ {/\/ {/' "${{ env.DTS_FILE }}"
-
-          echo "=== DTS Header Check (First 15 Lines) ==="
-          head -15 "${{ env.DTS_FILE }}"
-
-          echo "=== Validating DTS Syntax ==="
-          if ! dtc -I dts -O dtb -o /dev/null "${{ env.DTS_FILE }}"; then
-            echo "ERROR: DTS Syntax Error!"
-            hexdump -C "${{ env.DTS_FILE }}" | head -40
+          echo "=== [DTS Path Check] ==="
+          if [ ! -f "${{ env.DTS_FILE }}" ]; then
+            echo "❌ DTS not found: ${PWD}/${{ env.DTS_FILE }}"
             exit 1
           fi
-          echo "✅ DTS Syntax Check Passed"
+          echo "✅ DTS exists: ${PWD}/${{ env.DTS_FILE }}"
+
+          echo "=== [MK File Check] ==="
+          if [ ! -f "${{ env.MK_FILE }}" ]; then
+            echo "❌ MK file not found: ${PWD}/${{ env.MK_FILE }}"
+            exit 1
+          fi
+          echo "✅ MK exists: ${PWD}/${{ env.MK_FILE }}"
+
+          echo "=== [Device Definition Check] ==="
+          if ! grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}"; then
+            echo "❌ Device/${{ env.PROFILE }} not defined in ${{
+              env.MK_FILE }}"
+            exit 1
+          fi
+          echo "✅ Device/${{ env.PROFILE }} defined"
+
+          echo "=== [DEVICE_DTS Check] ==="
+          if ! grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}"; then
+            echo "❌ DEVICE_DTS mismatch in ${{
+              env.MK_FILE }}"
+            exit 1
+          fi
+          echo "✅ DEVICE_DTS aligned: ${{ env.DTS_NAME }}"
+
+          echo "=== [DEVICE_DTS_DIR Check] ==="
+          DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+          if ! grep -q "DEVICE_DTS_DIR := ${DTS_DIR}" "${{ env.MK_FILE }}"; then
+            echo "❌ DEVICE_DTS_DIR mismatch in ${{
+              env.MK_FILE }}"
+            exit 1
+          fi
+          echo "✅ DEVICE_DTS_DIR aligned: ${DTS_DIR}"
 
       # ---------------------------------------------------------
-      # 3. DTS 深度分析
+      # 3. DTS 校验：只走 OpenWrt kernel-dtc，不动源码
       # ---------------------------------------------------------
-      - name: Deep DTS Analysis
+      - name: DTS validation via OpenWrt kernel-dtc
         run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
           mkdir -p logs/dts
 
-          DTS="${{ env.DTS_FILE }}"
-          DTB_OUT="logs/dts/${{ env.DTS_NAME }}.dtb"
-          DUMP_DTS="logs/dts/${{ env.DTS_NAME }}.dump.dts"
+          echo "=== [DTS Header Preview] ==="
+          head -15 "${{ env.DTS_FILE }}" || true
 
-          echo "=== Rebuild DTB for Analysis ==="
-          dtc -I dts -O dtb -o "$DTB_OUT" "$DTS"
-
-          echo "=== Dump DTB Back to DTS ==="
-          dtc -I dtb -O dts -o "$DUMP_DTS" "$DTB_OUT"
-
-          echo "=== DTS Include Dependency Check ==="
-          grep -E '^#include' "$DTS" || echo "ℹ️ No #include lines found"
-
-          echo "=== DTS Label Duplicate Check ==="
-          awk '/:/{print $1}' "$DTS" | sed 's/:$//' | sort | uniq -d > logs/dts/duplicate_labels.txt || true
-          if [ -s logs/dts/duplicate_labels.txt ]; then
-            echo "⚠️ Duplicate labels detected:"
-            cat logs/dts/duplicate_labels.txt
-          else
-            echo "✅ No duplicate labels"
+          echo "=== [DTS Validation] make target/linux/compile CHECK=1 V=s ==="
+          # 只做语法 & include 校验，不强制并行，保证日志可读性
+          if ! make target/linux/compile CHECK=1 V=s -j1; then
+            echo "❌ DTS validation failed via kernel-dtc"
+            # 只做只读 hexdump，不改文件
+            echo "=== [DTS Hexdump First 256 bytes] ==="
+            hexdump -C "${{ env.DTS_FILE }}" | head -40 || true
+            exit 1
           fi
 
-          echo "=== DTS Node Path Conflict Check ==="
-          grep -E '^[[:space:]][a-zA-Z0-9,_-]+(@[0-9a-fA-Fx]+)?[[:space:]]\{' "$DTS" \
-            | sed 's/^[[:space:]]//;s/[[:space:]]\{.*$//' \
-            | sort | uniq -d > logs/dts/duplicate_nodes.txt || true
-          if [ -s logs/dts/duplicate_nodes.txt ]; then
-            echo "⚠️ Duplicate nodes detected:"
-            cat logs/dts/duplicate_nodes.txt
-          else
-            echo "✅ No duplicate nodes"
-          fi
+          echo "✅ DTS validation passed via kernel-dtc"
 
       # ---------------------------------------------------------
-      # 4. 三件套一致性检查
+      # 4. Feeds & 工具链（可复用缓存）
       # ---------------------------------------------------------
-      - name: Full 3-piece Consistency Check & Auto-fix
+      - name: Setup feeds
         run: |
-          cd ${{ env.BUILD_DIR }}
-
-          echo "=== Checking DTS File Exists ==="
-          test -f "${{ env.DTS_FILE }}" || { echo "❌ DTS Missing"; exit 1; }
-          echo "✅ DTS Exists"
-
-          echo "=== Checking MK File Exists ==="
-          test -f "${{ env.MK_FILE }}" || { echo "❌ MK Missing"; exit 1; }
-          echo "✅ MK Exists"
-
-          echo "=== Checking MK Device Definition ==="
-          grep -q "define Device/${{ env.PROFILE }}" "${{ env.MK_FILE }}" \
-            || { echo "❌ Device not defined in MK"; exit 1; }
-          echo "✅ Device Definition Exists"
-
-          echo "=== Checking DEVICE_DTS Alignment ==="
-          grep -q "DEVICE_DTS := ${{ env.DTS_NAME }}" "${{ env.MK_FILE }}" \
-            || { echo "❌ DEVICE_DTS mismatch"; exit 1; }
-          echo "✅ DEVICE_DTS Aligned"
-
-          echo "=== Checking DEVICE_DTS_DIR ==="
-          grep -q "DEVICE_DTS_DIR := target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek" "${{ env.MK_FILE }}" \
-            || { echo "❌ DEVICE_DTS_DIR mismatch"; exit 1; }
-          echo "✅ DEVICE_DTS_DIR Aligned"
-
-      # ---------------------------------------------------------
-      # 5. Build 全链路
-      # ---------------------------------------------------------
-      - name: Setup Feeds
-        run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
           rm -rf feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Build Tools
+      - name: Build tools
         run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
           make tools/install -j$(nproc) V=s
 
-      - name: Build Toolchain
+      - name: Build toolchain
         run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
           make toolchain/install -j$(nproc) V=s
 
-      - name: Build Target
+      # ---------------------------------------------------------
+      # 5. Target & Packages & Image
+      # ---------------------------------------------------------
+      - name: Build target
         run: |
-          cd ${{ env.BUILD_DIR }}
-          make target/compile -j$(nproc) V=s
+          cd "${{ env.BUILD_DIR }}"
+          # target/compile 偶尔在并行下死锁，这里保守用 -j1
+          make target/compile -j1 V=s
 
-      - name: Build Packages
+      - name: Build packages
         run: |
-          cd ${{ env.BUILD_DIR }}
+          cd "${{ env.BUILD_DIR }}"
           make package/compile -j$(nproc) V=s
           make package/install -j$(nproc) V=s
           make package/index
 
-      - name: Build Firmware
+      - name: Build firmware image
         run: |
-          cd ${{ env.BUILD_DIR }}
-          make image PROFILE=${{ env.PROFILE }} -j$(nproc) V=s || make image PROFILE=${{ env.PROFILE }} -j1 V=s
+          cd "${{ env.BUILD_DIR }}"
+          make image PROFILE="${{ env.PROFILE }}" -j$(nproc) V=s || \
+          make image PROFILE="${{ env.PROFILE }}" -j1 V=s
 
-      - name: Verify Firmware Output
+      # ---------------------------------------------------------
+      # 6. 固件验证 + 产物上传
+      # ---------------------------------------------------------
+      - name: Verify firmware output
         run: |
-          cd ${{ env.BUILD_DIR }}
-          echo "=== Firmware List ==="
-          ls -lh ${{ env.TARGET_DIR }}/${{ env.PROFILE }} || { echo "❌ No Firmware Found"; exit 1; }
-          echo -e "\n=== MD5 Checksum ==="
-          md5sum ${{ env.TARGET_DIR }}/${{ env.PROFILE }}/* || true
-          echo -e "\n=== File Type Check ==="
-          for bin in ${{ env.TARGET_DIR }}/${{ env.PROFILE }}/*; do
-            file $bin || true
+          cd "${{ env.BUILD_DIR }}"
+          echo "=== [Firmware List] ==="
+          if [ ! -d "${{ env.TARGET_DIR }}/${{ env.PROFILE }}" ]; then
+            echo "❌ No firmware directory: ${{
+              env.TARGET_DIR }}/${{ env.PROFILE }}"
+            ls -R "${{ env.TARGET_DIR }}" || true
+            exit 1
+          fi
+
+          ls -lh "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"
+
+          echo "=== [MD5 Checksum] ==="
+          md5sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
+
+          echo "=== [File Type Check] ==="
+          for bin in "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/*; do
+            file "$bin" || true
           done
-          echo "✅ Firmware Validation Passed"
 
-      - name: Upload Artifacts
+          echo "✅ Firmware validation passed"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-build-${{ github.run_number }}
           path: |
             ${{ env.TARGET_DIR }}/${{ env.PROFILE }}
-            ${{ env.BUILD_DIR }}/logs/dts/*
-
+            ${{ env.BUILD_DIR }}/logs/dts
