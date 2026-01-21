@@ -17,16 +17,17 @@ define Device/sl3000-emmc
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := eMMC
 
-  # DTS 文件名（位于内核树）
+  # DTS 配置
   DEVICE_DTS := mt7981b-sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)
+  DEVICE_DTS_CONFIG := config@1
 
-  # sysupgrade 兼容 ID
+  # sysupgrade 兼容配置
   SUPPORTED_DEVICES := sl3000-emmc mt7981b-sl3000-emmc sl3000-emmc-v1
+  DEVICE_COMPAT_VERSION := 1.1
+  DEVICE_COMPAT_MESSAGE := "SL3000 eMMC Ultimate Edition"
 
-  # ===========================
-  # 旗舰级驱动链（与终极 DTS 完全一致）
-  # ===========================
+  # 驱动与功能包（移除重复项）
   DEVICE_PACKAGES := \
     kmod-mt76 kmod-mt7981-firmware mt7981-wo-firmware \
     kmod-mt7530 kmod-dsa kmod-dsa-mt7530 \
@@ -40,34 +41,26 @@ define Device/sl3000-emmc
     blockd fstrim fitblk fstools block-mount uboot-envtools \
     irqbalance ethtool tcpdump-mini htop \
     luci luci-theme-bootstrap \
-    dockerd docker docker-compose luci-app-dockerman \
+    dockerd docker-compose luci-app-dockerman \
     luci-app-passwall2 xray-core \
     shadowsocks-libev-ss-local shadowsocks-libev-ss-redir \
     shadowsocks-libev-ss-server shadowsocks-libev-ss-tunnel
 
-  # ===========================
-  # 移除 USB（SL3000 无 USB 控制器）
-  # ===========================
+  # 移除 USB 相关包
   DEVICE_PACKAGES := $(filter-out \
     kmod-usb3 kmod-usb2 kmod-usb-storage kmod-usb-storage-uas \
     kmod-usb-ledtrig-usbport, \
     $(DEVICE_PACKAGES))
 
-  # ===========================
-  # 镜像大小（适配大 eMMC）
-  # ===========================
+  # 镜像大小
   IMAGE_SIZE := 10240m
 
-  # ===========================
   # Kernel / Rootfs
-  # ===========================
   KERNEL := kernel-bin
   KERNEL_INITRAMFS := kernel-bin
   ROOTFS := squashfs
 
-  # ===========================
-  # 镜像格式（官方结构 + 校验）
-  # ===========================
+  # 镜像格式
   IMAGES := sysupgrade.bin initramfs-recovery.itb
 
   IMAGE/sysupgrade.bin := \
@@ -75,8 +68,8 @@ define Device/sl3000-emmc
     check-size | append-metadata
 
   IMAGE/initramfs-recovery.itb := \
-    append-kernel | pad-to 64k | append-dtb | \
-    uImage none | append-metadata
+    export-kernel | append-dtb | pad-to 64k | \
+    mkits-itb none | append-metadata
 endef
 
 TARGET_DEVICES += sl3000-emmc
