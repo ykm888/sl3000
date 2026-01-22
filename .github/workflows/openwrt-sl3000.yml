@@ -41,7 +41,6 @@ jobs:
       - name: Apply router-specific patches
         run: |
           cd $PATCH_DIR
-          # 只保留和 mt7981、router、net 相关的补丁
           ls *.patch | grep -E "dts|mt7981|router|net" > series
           for p in *.patch; do
             grep -q -E "dts|mt7981|router|net" <<< "$p" || rm -f "$p"
@@ -53,6 +52,15 @@ jobs:
           [ -f .config ] || touch .config
           [ -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts ] || echo "/dts-v1/;" > target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
           [ -f target/linux/mediatek/image/filogic.mk ] || echo "# filogic mk" > target/linux/mediatek/image/filogic.mk
+
+      - name: Clean hidden characters in three-piece files
+        run: |
+          cd "${BUILD_DIR}"
+          for f in .config target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/image/filogic.mk; do
+            sed -i '1s/^\xEF\xBB\xBF//' "$f"   # 删除 BOM
+            sed -i 's/\t/ /g' "$f"             # 删除制表符
+            tr -d '\r\000' < "$f" > "$f.clean" && mv "$f.clean" "$f"  # 删除不可见字符
+          done
 
       - name: Setup feeds
         run: |
