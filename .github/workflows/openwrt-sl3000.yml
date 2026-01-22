@@ -21,7 +21,9 @@ jobs:
 
       - name: Checkout source
         run: |
-          git clone --depth=1 -b v24.10 https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
+          git clone https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
+          cd $BUILD_DIR
+          git checkout openwrt-24.10
 
       - name: Optimize disk space
         run: |
@@ -36,7 +38,7 @@ jobs:
             /mnt/openwrt/build_dir
           key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
 
-      - name: Apply router-specific patches (series method)
+      - name: Apply router-specific patches
         run: |
           cd $PATCH_DIR
           ls *.patch | grep -E "dts|mt7981|router|net" > series
@@ -51,36 +53,35 @@ jobs:
       - name: Setup feeds
         run: |
           cd "${BUILD_DIR}"
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update -a || ./scripts/feeds update -a
+          ./scripts/feeds install -a || ./scripts/feeds install -a
 
       - name: Build tools
         run: |
           cd "${BUILD_DIR}"
-          make tools/install -j1 V=s
+          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
 
       - name: Build toolchain
         run: |
           cd "${BUILD_DIR}"
-          make toolchain/install -j$(nproc) V=s
+          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
 
       - name: Build target
         run: |
           cd "${BUILD_DIR}"
-          make target/compile -j1 V=s
+          make target/compile -j$(nproc) V=s || make target/compile -j1 V=s
 
       - name: Build packages
         run: |
           cd "${BUILD_DIR}"
-          make package/compile -j$(nproc) V=s
-          make package/install -j$(nproc) V=s
+          make package/compile -j$(nproc) V=s || make package/compile -j1 V=s
+          make package/install -j$(nproc) V=s || make package/install -j1 V=s
           make package/index
 
       - name: Build firmware image
         run: |
           cd "${BUILD_DIR}"
-          make image PROFILE="${PROFILE}" -j$(nproc) V=s || \
-          make image PROFILE="${PROFILE}" -j1 V=s
+          make image PROFILE="${PROFILE}" -j$(nproc) V=s || make image PROFILE="${PROFILE}" -j1 V=s
 
       - name: Verify firmware output
         run: |
@@ -90,13 +91,45 @@ jobs:
           sha256sum "${TARGET_DIR}"/* || true
           for bin in "${TARGET_DIR}"/*; do file "$bin"; done
 
+      - name: Collect build logs
+        if: always()
+        run: |
+          cd "${BUILD_DIR}"
+          mkdir -p logs
+          cp -f build.log logs/ || true
+          cp -f error.log logs/ || true
+          tail -n 200 build.log || true
+
+      - name: Generate manifest
+        run: |
+          cd "${TARGET_DIR}"
+          echo "Firmware manifest for SL3000" > manifest.txt
+          ls -lh >> manifest.txt
+          md5sum * >> manifest.txt
+          sha256sum * >> manifest.txt
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-${{ env.PROFILE }}-flagship-${{ github.run_number }}
           path: |
             ${{ env.TARGET_DIR }}
+            ${{ env.TARGET_DIR }}/manifest.txt
             ${{ env.BUILD_DIR }}/logs
+
+      - name: Publish firmware release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}"
+          name: "ImmortalWrt SL3000 Flagship Build"
+          body: |
+            自动构建完成，包含固件、校验文件、日志。
+          files: |
+            ${{ env.TARGET_DIR }}/*
+            ${{ env.TARGET_DIR }}/manifest.txt
+            ${{ env.BUILD_DIR }}/logs/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cleanup build_dir
         if: always()
