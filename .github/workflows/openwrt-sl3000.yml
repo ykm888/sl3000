@@ -1,4 +1,4 @@
-name: ImmortalWrt SL3000 Engineering Build
+name: ImmortalWrt SL3000 Build 24.10
 
 on:
   workflow_dispatch:
@@ -12,7 +12,6 @@ env:
   CCACHE_DIR: ccache
   PROFILE: sl3000-emmc
   DTSFILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
-  MKFILE: target/linux/mediatek/image/filogic.mk
   PATCHFILE: target/linux/mediatek/patches-6.12/117-complete-mt7981b-dtsi.patch
 
 jobs:
@@ -21,23 +20,16 @@ jobs:
 
     steps:
       # ---------------------------------------------------------
-      # 0. 克隆官方源码 + 磁盘清理
+      # 0. 克隆官方源码
       # ---------------------------------------------------------
-      - name: Clone ImmortalWrt official source
+      - name: Clone ImmortalWrt 24.10
         run: |
           git clone https://github.com/immortalwrt/immortalwrt.git "${{ env.BUILD_DIR }}"
           cd "${{ env.BUILD_DIR }}"
           git checkout openwrt-24.10
 
-      - name: Pre-build Disk Optimization
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          sudo apt-get clean || true
-          sudo docker system prune -af || true
-          df -h
-
       # ---------------------------------------------------------
-      # 1. 构建环境：依赖 + ccache + 缓存
+      # 1. 构建环境
       # ---------------------------------------------------------
       - name: Install build dependencies
         run: |
@@ -56,19 +48,8 @@ jobs:
           ccache --max-size=5G
           ccache -z
 
-      - name: Restore caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.CCACHE_DIR }}
-            ${{ env.BUILD_DIR }}/dl
-            ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
-            ${{ env.BUILD_DIR }}/build_dir/toolchain-*
-          key: immortalwrt-${{ github.sha }}
-          restore-keys: immortalwrt-
-
       # ---------------------------------------------------------
-      # 2. 清理补丁，只保留 117
+      # 2. 补丁清理，只保留 117
       # ---------------------------------------------------------
       - name: Clean patches, keep only 117
         run: |
@@ -78,7 +59,7 @@ jobs:
           ls
 
       # ---------------------------------------------------------
-      # 3. 三件套文件覆盖（使用你仓库的版本）
+      # 3. 三件套覆盖
       # ---------------------------------------------------------
       - name: Override 3-piece dt-bindings
         run: |
@@ -88,7 +69,7 @@ jobs:
           echo "✅ 三件套已覆盖到官方源码"
 
       # ---------------------------------------------------------
-      # 4. Fail-fast: 三件套文件存在 + DTS 编译验证
+      # 4. Fail-fast 检查
       # ---------------------------------------------------------
       - name: Pre-build fail-fast check
         run: |
@@ -110,14 +91,8 @@ jobs:
       - name: Setup feeds
         run: |
           cd "${{ env.BUILD_DIR }}"
-          rm -rf feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Clean toolchain before build
-        run: |
-          cd "${{ env.BUILD_DIR }}"
-          rm -rf build_dir/toolchain-* staging_dir/toolchain-*
 
       - name: Build tools
         run: |
@@ -150,7 +125,7 @@ jobs:
           make image PROFILE="${{ env.PROFILE }}" -j$(nproc) V=s || \
           make image PROFILE="${{ env.PROFILE }}" -j1 V=s
 
-      # ---------------------------# -------------------------------            --------------------------
+      # ---------------------------------------------------------
       # 7. 固件验证 + 自动注册产物
       # ---------------------------------------------------------
       - name: Verify firmware output
