@@ -69,10 +69,8 @@ jobs:
             ${{ env.BUILD_DIR }}/dl
             ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
             ${{ env.BUILD_DIR }}/build_dir/toolchain-*
-          key: immortalwrt-${{ github.run_id }}
-          restore-keys: |
-            immortalwrt-toolchain-
-            immortalwrt-base-
+          key: immortalwrt-${{ github.sha }}
+          restore-keys: immortalwrt-
 
       # ---------------------------------------------------------
       # 2. 清理补丁，只保留 117
@@ -99,7 +97,24 @@ jobs:
           ls -lh "${{ env.PATCHFILE }}" || { echo "❌ Patch file not found"; exit 1; }
 
       # ---------------------------------------------------------
-      # 4. Feeds & 工具链（强制清理缓存）
+      # 4. Fail-fast: 三件套文件存在 + DTS 编译验证
+      # ---------------------------------------------------------
+      - name: Pre-build fail-fast check
+        run: |
+          cd "${{ env.BUILD_DIR }}"
+          echo "=== [三件套文件检查] ==="
+          test -f include/dt-bindings/clock/mt7981-clk.h || { echo "❌ 缺少 mt7981-clk.h"; exit 1; }
+          test -f include/dt-bindings/reset/mt7981-reset.h || { echo "❌ 缺少 mt7981-reset.h"; exit 1; }
+          test -f include/dt-bindings/pinctrl/mt7981-pinfunc.h || { echo "❌ 缺少 mt7981-pinfunc.h"; exit 1; }
+          echo "✅ 三件套文件存在"
+
+          echo "=== [DTS 编译验证] ==="
+          mkdir -p logs/dts
+          dtc -I dts -O dtb -o logs/dts/precheck.dtb "${{ env.DTSFILE }}" || { echo "❌ DTS 编译失败"; exit 1; }
+          echo "✅ DTS 编译通过"
+
+      # ---------------------------------------------------------
+      # 5. Feeds & 工具链
       # ---------------------------------------------------------
       - name: Setup feeds
         run: |
@@ -122,20 +137,6 @@ jobs:
         run: |
           cd "${{ env.BUILD_DIR }}"
           make toolchain/install -j$(nproc) V=s
-
-      # ---------------------------------------------------------
-      # 5. DTS 校验
-      # ---------------------------------------------------------
-      - name: DTS validation via dtc
-        run: |
-          cd "${{ env.BUILD_DIR }}"
-          mkdir -p logs/dts
-          echo "=== [DTS Header Preview] ==="
-          head -15 "${{ env.DTSFILE }}" || true
-          echo "=== [DTS Validation] ==="
-          dtc -I dts -O dtb -o logs/dts/test.dtb "${{ env.DTSFILE }}" || \
-          make target/linux/compile CHECK=1 V=s -j1
-          echo "✅ DTS validation passed"
 
       # ---------------------------------------------------------
       # 6. Target & Packages & Image
