@@ -1,30 +1,31 @@
-name: Sync dt-bindings
+name: Sync MT7981 dt-bindings
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # 手动触发
 
 jobs:
-  sync-bindings:
+  sync:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout your repo
         uses: actions/checkout@v4
 
-      - name: Clone Linux source
+      - name: Clone Linux v6.6 source
         run: |
-          git clone --depth=1 --branch v6.12 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
+          git clone --depth=1 --branch v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
 
-      - name: Copy dt-bindings
+      - name: Copy dt-bindings files
         run: |
           mkdir -p include/dt-bindings/clock include/dt-bindings/reset include/dt-bindings/pinctrl
-          cp linux-src/include/dt-bindings/clock/mt7981-clk.h include/dt-bindings/clock/
-          cp linux-src/include/dt-bindings/reset/mt7981-reset.h include/dt-bindings/reset/
-          cp linux-src/include/dt-bindings/pinctrl/mt7981-pinfunc.h include/dt-bindings/pinctrl/
+          cp linux-src/include/dt-bindings/clock/mt7981-clk.h include/dt-bindings/clock/ || true
+          cp linux-src/include/dt-bindings/reset/mt7981-reset.h include/dt-bindings/reset/ || true
+          cp linux-src/include/dt-bindings/pinctrl/mt7981-pinfunc.h include/dt-bindings/pinctrl/ || true
 
-      - name: Commit and push
+      - name: Commit and push changes
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
           git add include/dt-bindings
-          git commit -m "Sync mt7981 dt-bindings from Linux v6.12"
+          git commit -m "Sync MT7981 dt-bindings from Linux v6.6" || echo "No changes to commit"
           git push
