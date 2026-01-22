@@ -21,9 +21,7 @@ jobs:
 
       - name: Checkout source
         run: |
-          git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
-          cd $BUILD_DIR
-          git checkout openwrt-24.10
+          git clone --depth=1 -b v24.10 https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
 
       - name: Optimize disk space
         run: |
