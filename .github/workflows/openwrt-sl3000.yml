@@ -74,7 +74,11 @@ jobs:
 
       - name: Fix bash path
         run: |
-          sudo ln -sf /bin/bash /usr/bin/bash
+          if [ ! -x /usr/bin/bash ]; then
+            sudo ln -sf /bin/bash /usr/bin/bash
+          else
+            echo "/usr/bin/bash already exists"
+          fi
 
       - name: Patch ninja Makefile
         run: |
