@@ -1,6 +1,5 @@
 /dts-v1/;
 
-/* SoC 基础定义 */
 #include "mt7981.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -12,13 +11,11 @@
 	model = "SL-3000 eMMC Board (Ultimate Edition)";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
-	/* 1GB DDR */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
-	/* 固定电源 */
 	reg_3p3v: regulator-3p3v {
 		compatible = "regulator-fixed";
 		regulator-name = "fixed-3.3v";
@@ -37,7 +34,6 @@
 		regulator-boot-on;
 	};
 
-	/* CPU OPP 表 */
 	cpu_opp: opp-table {
 		compatible = "operating-points-v2";
 
@@ -60,7 +56,6 @@
 		};
 	};
 
-	/* LED 灯 */
 	leds {
 		compatible = "gpio-leds";
 
@@ -83,7 +78,6 @@
 		};
 	};
 
-	/* 按键 */
 	keys {
 		compatible = "gpio-keys";
 
@@ -118,7 +112,6 @@
 	};
 };
 
-/* 保留内存 */
 &reserved_memory {
 	wifi_emi: wifi@47c80000 {
 		reg = <0 0x47c80000 0 0x100000>;
@@ -136,29 +129,24 @@
 	};
 };
 
-/* CPU */
 &cpu0 {
 	operating-points-v2 = <&cpu_opp>;
 	status = "okay";
 };
 
-/* UART */
 &uart0 {
 	status = "okay";
 };
 
-/* Watchdog */
 &watchdog {
 	status = "okay";
 	timeout-sec = <30>;
 };
 
-/* RNG */
 &rng {
 	status = "okay";
 };
 
-/* Ethernet + MT7531 交换机 */
 &eth {
 	status = "okay";
 	mediatek,eth-wed-enable = <1>;
@@ -208,7 +196,6 @@
 	};
 };
 
-/* eMMC */
 &mmc0 {
 	status = "okay";
 	bus-width = <8>;
@@ -228,7 +215,6 @@
 	non-removable;
 };
 
-/* SPI NOR Flash */
 &spi0 {
 	status = "okay";
 	num-cs = <1>;
@@ -274,14 +260,12 @@
 	};
 };
 
-/* WiFi */
 &wifi {
 	status = "okay";
 	mediatek,mtd-eeprom = <&factory 0x0000>;
 	mediatek,eeprom-checksum = <1>;
 };
 
-/* Pinmux 配置 */
 &pio {
 	mmc0_pins_default: mmc0-pins-default {
 		mux {
