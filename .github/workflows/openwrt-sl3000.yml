@@ -21,24 +21,19 @@ jobs:
 
     steps:
       # ---------------------------------------------------------
-      # 0. 基础准备：拉代码 + 磁盘清理
+      # 0. 克隆官方源码 + 磁盘清理
       # ---------------------------------------------------------
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - name: Clone ImmortalWrt official source
+        run: |
+          git clone https://github.com/immortalwrt/immortalwrt.git "${{ env.BUILD_DIR }}"
+          cd "${{ env.BUILD_DIR }}"
+          git checkout openwrt-24.10
 
       - name: Pre-build Disk Optimization
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
           sudo apt-get clean || true
           sudo docker system prune -af || true
-          df -h
-
-      - name: Prepare build directory
-        run: |
-          mkdir -p "${{ env.BUILD_DIR }}"
-          rsync -a --delete ./ "${{ env.BUILD_DIR }}/"
           df -h
 
       # ---------------------------------------------------------
@@ -83,18 +78,14 @@ jobs:
           ls
 
       # ---------------------------------------------------------
-      # 3. 三件套确认（写死路径，避免检测错误）
+      # 3. 三件套文件覆盖（使用你仓库的版本）
       # ---------------------------------------------------------
-      - name: Confirm 3-piece files
+      - name: Override 3-piece dt-bindings
         run: |
-          cd "${{ env.BUILD_DIR }}"
-          echo "PROFILE=${{ env.PROFILE }}"
-          echo "DTSFILE=${{ env.DTSFILE }}"
-          echo "MKFILE=${{ env.MKFILE }}"
-          echo "PATCHFILE=${{ env.PATCHFILE }}"
-          ls -lh "${{ env.DTSFILE }}" || { echo "❌ DTS file not found"; exit 1; }
-          ls -lh "${{ env.MKFILE }}" || { echo "❌ MK file not found"; exit 1; }
-          ls -lh "${{ env.PATCHFILE }}" || { echo "❌ Patch file not found"; exit 1; }
+          cp -f include/dt-bindings/clock/mt7981-clk.h "${{ env.BUILD_DIR }}/include/dt-bindings/clock/"
+          cp -f include/dt-bindings/reset/mt7981-reset.h "${{ env.BUILD_DIR }}/include/dt-bindings/reset/"
+          cp -f include/dt-bindings/pinctrl/mt7981-pinfunc.h "${{ env.BUILD_DIR }}/include/dt-bindings/pinctrl/"
+          echo "✅ 三件套已覆盖到官方源码"
 
       # ---------------------------------------------------------
       # 4. Fail-fast: 三件套文件存在 + DTS 编译验证
@@ -159,7 +150,7 @@ jobs:
           make image PROFILE="${{ env.PROFILE }}" -j$(nproc) V=s || \
           make image PROFILE="${{ env.PROFILE }}" -j1 V=s
 
-      # ---------------------------------------------------------
+      # ---------------------------# -------------------------------            --------------------------
       # 7. 固件验证 + 自动注册产物
       # ---------------------------------------------------------
       - name: Verify firmware output
