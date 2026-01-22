@@ -41,7 +41,11 @@ jobs:
       - name: Apply router-specific patches
         run: |
           cd $PATCH_DIR
+          # 只保留和 mt7981、router、net 相关的补丁
           ls *.patch | grep -E "dts|mt7981|router|net" > series
+          for p in *.patch; do
+            grep -q -E "dts|mt7981|router|net" <<< "$p" || rm -f "$p"
+          done
 
       - name: Auto-fix three-piece files
         run: |
