@@ -11,6 +11,7 @@ jobs:
       BUILD_DIR: openwrt
       PROFILE: sl3000-emmc
       TARGET_DIR: openwrt/bin/targets/mediatek/filogic
+      PATCH_DIR: openwrt/target/linux/mediatek/patches-6.6
 
     steps:
       - name: Checkout source
@@ -32,23 +33,10 @@ jobs:
             ${{ env.BUILD_DIR }}/build_dir
           key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
 
-      - name: Detect patch directory
-        run: |
-          if [ -d "${BUILD_DIR}/target/linux/mediatek/patches-6.12" ]; then
-            echo "PATCH_DIR=${BUILD_DIR}/target/linux/mediatek/patches-6.12" >> $GITHUB_ENV
-          elif [ -d "${BUILD_DIR}/target/linux/mediatek/patches-6.6" ]; then
-            echo "PATCH_DIR=${BUILD_DIR}/target/linux/mediatek/patches-6.6" >> $GITHUB_ENV
-          else
-            echo "❌ No patches directory found"
-            exit 1
-          fi
-
-      - name: Apply router-specific patches
+      - name: Apply router-specific patches (series method)
         run: |
           cd $PATCH_DIR
-          for p in $(ls *.patch | grep -E "dts|mt7981|router|net"); do
-            patch -p1 < $p
-          done
+          ls *.patch | grep -E "dts|mt7981|router|net" > series
 
       - name: Auto-fix three-piece files
         run: |
