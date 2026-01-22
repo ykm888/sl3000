@@ -1,4 +1,4 @@
-name: ImmortalWrt SL3000 Flagship Build
+name: ImmortalWrt SL3000 Build
 
 on:
   workflow_dispatch:
@@ -38,15 +38,17 @@ jobs:
             /mnt/openwrt/build_dir
           key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
 
-      - name: Keep only 117 patch
+      - name: Filter router-related patches
         run: |
           cd $PATCH_DIR
           for p in *.patch; do
             case "$p" in
-              117-*.patch) ;; # 保留
-              *) rm -f "$p" ;;
+              *mt7981*|*sl3000*|*emmc*|*uart*|*mmc*) ;; # 保留路由器相关补丁
+              *) rm -f "$p" ;; # 删除不相关补丁
             esac
           done
+          echo "保留的补丁清单："
+          ls -lh
 
       - name: Auto-fix three-piece files
         run: |
@@ -59,16 +61,20 @@ jobs:
         run: |
           cd "${BUILD_DIR}"
           for f in .config target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/image/filogic.mk; do
-            sed -i '1s/^\xEF\xBB\xBF//' "$f"   # 删除 BOM
-            sed -i 's/\t/ /g' "$f"             # 删除制表符
+            sed -i '1s/^\xEF\xBB\xBF//' "$f"
+            sed -i 's/\t/ /g' "$f"
             tr -d '\r\000' < "$f" > "$f.clean" && mv "$f.clean" "$f"
           done
 
       - name: Setup feeds
         run: |
           cd "${BUILD_DIR}"
-          ./scripts/feeds update -a || ./scripts/feeds update -a
-          ./scripts/feeds install -a || ./scripts/feeds install -a
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Fix bash path
+        run: |
+          sudo ln -sf /bin/bash /usr/bin/bash
 
       - name: Patch ninja Makefile
         run: |
@@ -110,49 +116,9 @@ jobs:
           sha256sum "${TARGET_DIR}"/* || true
           for bin in "${TARGET_DIR}"/*; do file "$bin"; done
 
-      - name: Collect build logs
-        if: always()
-        run: |
-          cd "${BUILD_DIR}"
-          mkdir -p logs
-          cp -f build.log logs/ || true
-          cp -f error.log logs/ || true
-          tail -n 200 build.log || true
-
-      - name: Generate manifest
-        run: |
-          cd "${TARGET_DIR}"
-          echo "Firmware manifest for SL3000" > manifest.txt
-          ls -lh >> manifest.txt
-          md5sum * >> manifest.txt
-          sha256sum * >> manifest.txt
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ env.PROFILE }}-flagship-${{ github.run_number }}
+          name: immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}
           path: |
             ${{ env.TARGET_DIR }}
-            ${{ env.TARGET_DIR }}/manifest.txt
-            ${{ env.BUILD_DIR }}/logs
-
-      - name: Publish firmware release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: "immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}"
-          name: "ImmortalWrt SL3000 Flagship Build"
-          body: |
-            自动构建完成，包含固件、校验文件、日志。
-          files: |
-            ${{ env.TARGET_DIR }}/*
-            ${{ env.TARGET_DIR }}/manifest.txt
-            ${{ env.BUILD_DIR }}/logs/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cleanup build_dir
-        if: always()
-        run: |
-          rm -rf $BUILD_DIR/build_dir
-          rm -rf $BUILD_DIR/staging_dir
-          df -h
