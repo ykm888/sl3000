@@ -8,15 +8,20 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      BUILD_DIR: openwrt
+      BUILD_DIR: /mnt/openwrt
       PROFILE: sl3000-emmc
-      TARGET_DIR: openwrt/bin/targets/mediatek/filogic
-      PATCH_DIR: openwrt/target/linux/mediatek/patches-6.6
+      TARGET_DIR: /mnt/openwrt/bin/targets/mediatek/filogic
+      PATCH_DIR: /mnt/openwrt/target/linux/mediatek/patches-6.6
 
     steps:
+      - name: Prepare /mnt
+        run: |
+          sudo mkdir -p /mnt/openwrt
+          sudo chown $USER:$USER /mnt/openwrt
+
       - name: Checkout source
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
+          git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
           cd $BUILD_DIR
           git checkout openwrt-24.10
 
@@ -29,8 +34,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.BUILD_DIR }}/dl
-            ${{ env.BUILD_DIR }}/build_dir
+            /mnt/openwrt/dl
+            /mnt/openwrt/build_dir
           key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
 
       - name: Apply router-specific patches (series method)
@@ -54,7 +59,7 @@ jobs:
       - name: Build tools
         run: |
           cd "${BUILD_DIR}"
-          make tools/install -j$(nproc) V=s
+          make tools/install -j1 V=s
 
       - name: Build toolchain
         run: |
@@ -94,3 +99,10 @@ jobs:
           path: |
             ${{ env.TARGET_DIR }}
             ${{ env.BUILD_DIR }}/logs
+
+      - name: Cleanup build_dir
+        if: always()
+        run: |
+          rm -rf $BUILD_DIR/build_dir
+          rm -rf $BUILD_DIR/staging_dir
+          df -h
