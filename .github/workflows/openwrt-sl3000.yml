@@ -38,12 +38,14 @@ jobs:
             /mnt/openwrt/build_dir
           key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
 
-      - name: Apply router-specific patches
+      - name: Keep only 117 patch
         run: |
           cd $PATCH_DIR
-          ls *.patch | grep -E "dts|mt7981|router|net" > series
           for p in *.patch; do
-            grep -q -E "dts|mt7981|router|net" <<< "$p" || rm -f "$p"
+            case "$p" in
+              117-*.patch) ;; # 保留
+              *) rm -f "$p" ;;
+            esac
           done
 
       - name: Auto-fix three-piece files
