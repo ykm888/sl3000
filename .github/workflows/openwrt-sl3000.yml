@@ -43,11 +43,11 @@ jobs:
           cd $PATCH_DIR
           for p in *.patch; do
             case "$p" in
-              *mt7981*|*sl3000*|*emmc*|*uart*|*mmc*) ;; # 保留路由器相关补丁
-              *) rm -f "$p" ;; # 删除不相关补丁
+              *mt7981*|*sl3000*) ;; # 只保留和 SL3000/MT7981 相关的补丁
+              *) rm -f "$p" ;;      # 删除所有不相关补丁
             esac
           done
-          echo "保留的补丁清单："
+          echo "最终保留的补丁清单："
           ls -lh
 
       - name: Auto-fix three-piece files
