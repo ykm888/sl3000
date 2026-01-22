@@ -10,6 +10,10 @@ env:
   TARGET_DIR: bin/targets/mediatek/filogic
   BUILD_DIR: openwrt
   CCACHE_DIR: ccache
+  PROFILE: sl3000-emmc
+  DTSFILE: target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
+  MKFILE: target/linux/mediatek/image/filogic.mk
+  PATCHFILE: target/linux/mediatek/patches-6.12/117-complete-mt7981b-dtsi.patch
 
 jobs:
   build:
@@ -81,31 +85,18 @@ jobs:
           ls
 
       # ---------------------------------------------------------
-      # 3. 自动检测 & 注册三件套（修复版）
+      # 3. 三件套确认（写死路径，避免检测错误）
       # ---------------------------------------------------------
-      - name: Auto Detect & Register 3-piece
+      - name: Confirm 3-piece files
         run: |
           cd "${{ env.BUILD_DIR }}"
-          MK_FILE=target/linux/mediatek/image/filogic.mk
-
-          PROFILE=$(grep -E "^define Device/" "$MK_FILE" | head -1 | awk '{print $2}' | sed 's#Device/##')
-          DTSNAME=$(grep -E "DEVICEDTS[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
-          DTSDIR=$(grep -E "DEVICEDTSDIR[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
-
-          DTSFILE="${DTSDIR}/${DTSNAME}.dts"
-
-          echo "PROFILE=$PROFILE" >> $GITHUB_ENV
-          echo "DTSNAME=$DTSNAME" >> $GITHUB_ENV
-          echo "DTSFILE=$DTSFILE" >> $GITHUB_ENV
-          echo "MKFILE=$MK_FILE" >> $GITHUB_ENV
-
-          echo "=== Auto-Detected 3-piece ==="
-          echo "PROFILE=$PROFILE"
-          echo "DTSNAME=$DTSNAME"
-          echo "DTSFILE=$DTSFILE"
-          echo "MKFILE=$MK_FILE"
-
-          ls -lh "$DTSFILE" || { echo "❌ DTS file not found"; exit 1; }
+          echo "PROFILE=${{ env.PROFILE }}"
+          echo "DTSFILE=${{ env.DTSFILE }}"
+          echo "MKFILE=${{ env.MKFILE }}"
+          echo "PATCHFILE=${{ env.PATCHFILE }}"
+          ls -lh "${{ env.DTSFILE }}" || { echo "❌ DTS file not found"; exit 1; }
+          ls -lh "${{ env.MKFILE }}" || { echo "❌ MK file not found"; exit 1; }
+          ls -lh "${{ env.PATCHFILE }}" || { echo "❌ Patch file not found"; exit 1; }
 
       # ---------------------------------------------------------
       # 4. Feeds & 工具链（强制清理缓存）
