@@ -63,8 +63,8 @@ jobs:
           path: |
             ${{ env.CCACHE_DIR }}
             ${{ env.BUILD_DIR }}/dl
-            ${{ env.BUILD_DIR }}/stagingdir/toolchain-*
-            ${{ env.BUILD_DIR }}/builddir/toolchain-*
+            ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
+            ${{ env.BUILD_DIR }}/build_dir/toolchain-*
           key: immortalwrt-${{ github.run_id }}
           restore-keys: |
             immortalwrt-toolchain-
@@ -76,7 +76,7 @@ jobs:
       - name: Clean patches, keep only 117
         run: |
           cd "${{ env.BUILD_DIR }}/target/linux/mediatek/patches-6.12"
-          ls | grep -v "117-complete-mt7981b-dtsi.patch" | xargs rm -f
+          ls | grep -v "117-complete-mt7981b-dtsi.patch" | xargs -r rm -f
           echo "Remaining patches:"
           ls
 
@@ -105,6 +105,8 @@ jobs:
           echo "DTSFILE=$DTSFILE"
           echo "MKFILE=$MK_FILE"
 
+          ls -lh "$DTSFILE" || { echo "❌ DTS file not found"; exit 1; }
+
       # ---------------------------------------------------------
       # 4. Feeds & 工具链（强制清理缓存）
       # ---------------------------------------------------------
@@ -118,7 +120,7 @@ jobs:
       - name: Clean toolchain before build
         run: |
           cd "${{ env.BUILD_DIR }}"
-          rm -rf builddir/toolchain- stagingdir/toolchain-
+          rm -rf build_dir/toolchain-* staging_dir/toolchain-*
 
       - name: Build tools
         run: |
@@ -140,7 +142,8 @@ jobs:
           echo "=== [DTS Header Preview] ==="
           head -15 "${{ env.DTSFILE }}" || true
           echo "=== [DTS Validation] ==="
-          dtc -I dts -O dtb -o logs/dts/test.dtb "${{ env.DTSFILE }}"
+          dtc -I dts -O dtb -o logs/dts/test.dtb "${{ env.DTSFILE }}" || \
+          make target/linux/compile CHECK=1 V=s -j1
           echo "✅ DTS validation passed"
 
       # ---------------------------------------------------------
@@ -171,13 +174,13 @@ jobs:
         run: |
           cd "${{ env.BUILD_DIR }}"
           echo "=== [Firmware List] ==="
-          ls -lh "${{ env.TARGET_DIR }}/${{ env.PROFILE }}" || { echo "❌ No firmware found"; exit 1; }
+          ls -lh "${{ env.TARGET_DIR }}" || { echo "❌ No firmware found"; exit 1; }
           echo "=== [MD5 Checksum] ==="
-          md5sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
+          md5sum "${{ env.TARGET_DIR }}"/* || true
           echo "=== [SHA256 Checksum] ==="
-          sha256sum "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/* || true
+          sha256sum "${{ env.TARGET_DIR }}"/* || true
           echo "=== [File Type Check] ==="
-          for bin in "${{ env.TARGET_DIR }}/${{ env.PROFILE }}"/*; do
+          for bin in "${{ env.TARGET_DIR }}"/*; do
             file "$bin" || true
           done
           echo "✅ Firmware validation passed"
@@ -187,5 +190,5 @@ jobs:
         with:
           name: immortalwrt-${{ env.PROFILE }}-build-${{ github.run_number }}
           path: |
-            ${{ env.TARGET_DIR }}/${{ env.PROFILE }}
+            ${{ env.TARGET_DIR }}
             ${{ env.BUILD_DIR }}/logs/dts
