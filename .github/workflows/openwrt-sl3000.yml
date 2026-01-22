@@ -42,10 +42,17 @@ jobs:
         run: |
           cd $PATCH_DIR
           for p in *.patch; do
-            case "$p" in
-              *mt7981*|*sl3000*) ;; # 只保留和 SL3000/MT7981 相关的补丁
-              *) rm -f "$p" ;;      # 删除所有不相关补丁
-            esac
+            target_file=$(grep -m1 '^--- a/' "$p" | sed 's/^--- a\///')
+            if [[ "$p" == *mt7981* || "$p" == *sl3000* ]]; then
+              if [ -n "$target_file" ] && [ -f "$BUILD_DIR/linux-6.6/$target_file" ]; then
+                echo "保留补丁: $p"
+              else
+                echo "删除无效补丁: $p (目标文件不存在)"
+                rm -f "$p"
+              fi
+            else
+              rm -f "$p"
+            fi
           done
           echo "最终保留的补丁清单："
           ls -lh
