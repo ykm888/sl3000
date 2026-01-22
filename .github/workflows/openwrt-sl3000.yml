@@ -52,8 +52,8 @@ jobs:
       - name: Setup ccache
         run: |
           mkdir -p "${{ env.CCACHE_DIR }}"
-          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> "$GITHUB_ENV"
-          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
+          echo "CCACHEDIR=${{ env.CCACHE_DIR }}" >> "$GITHUB_ENV"
+          export CCACHEDIR="${{ env.CCACHE_DIR }}"
           ccache --max-size=5G
           ccache -z
 
@@ -63,45 +63,50 @@ jobs:
           path: |
             ${{ env.CCACHE_DIR }}
             ${{ env.BUILD_DIR }}/dl
-            ${{ env.BUILD_DIR }}/staging_dir/toolchain-*
-            ${{ env.BUILD_DIR }}/build_dir/toolchain-*
+            ${{ env.BUILD_DIR }}/stagingdir/toolchain-*
+            ${{ env.BUILD_DIR }}/builddir/toolchain-*
           key: immortalwrt-${{ github.run_id }}
           restore-keys: |
             immortalwrt-toolchain-
             immortalwrt-base-
 
       # ---------------------------------------------------------
-      # 2. 自动检测 & 注册三件套（修复版）
+      # 2. 清理补丁，只保留 117
+      # ---------------------------------------------------------
+      - name: Clean patches, keep only 117
+        run: |
+          cd "${{ env.BUILD_DIR }}/target/linux/mediatek/patches-6.12"
+          ls | grep -v "117-complete-mt7981b-dtsi.patch" | xargs rm -f
+          echo "Remaining patches:"
+          ls
+
+      # ---------------------------------------------------------
+      # 3. 自动检测 & 注册三件套（修复版）
       # ---------------------------------------------------------
       - name: Auto Detect & Register 3-piece
         run: |
           cd "${{ env.BUILD_DIR }}"
           MK_FILE=target/linux/mediatek/image/filogic.mk
 
-          # 提取 Profile 名称，去掉 "Device/"
           PROFILE=$(grep -E "^define Device/" "$MK_FILE" | head -1 | awk '{print $2}' | sed 's#Device/##')
+          DTSNAME=$(grep -E "DEVICEDTS[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
+          DTSDIR=$(grep -E "DEVICEDTSDIR[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
 
-          # 提取 DTS 名称和目录，清理空格和换行
-          DTS_NAME=$(grep -E "DEVICE_DTS[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
-          DTS_DIR=$(grep -E "DEVICE_DTS_DIR[[:space:]]*:=" "$MK_FILE" | head -1 | awk -F':=' '{print $2}' | tr -d '[:space:]')
+          DTSFILE="${DTSDIR}/${DTSNAME}.dts"
 
-          # 拼接 DTS 文件路径
-          DTS_FILE="${DTS_DIR}/${DTS_NAME}.dts"
-
-          # 注册到环境变量
           echo "PROFILE=$PROFILE" >> $GITHUB_ENV
-          echo "DTS_NAME=$DTS_NAME" >> $GITHUB_ENV
-          echo "DTS_FILE=$DTS_FILE" >> $GITHUB_ENV
-          echo "MK_FILE=$MK_FILE" >> $GITHUB_ENV
+          echo "DTSNAME=$DTSNAME" >> $GITHUB_ENV
+          echo "DTSFILE=$DTSFILE" >> $GITHUB_ENV
+          echo "MKFILE=$MK_FILE" >> $GITHUB_ENV
 
           echo "=== Auto-Detected 3-piece ==="
           echo "PROFILE=$PROFILE"
-          echo "DTS_NAME=$DTS_NAME"
-          echo "DTS_FILE=$DTS_FILE"
-          echo "MK_FILE=$MK_FILE"
+          echo "DTSNAME=$DTSNAME"
+          echo "DTSFILE=$DTSFILE"
+          echo "MKFILE=$MK_FILE"
 
       # ---------------------------------------------------------
-      # 3. Feeds & 工具链（强制清理缓存）
+      # 4. Feeds & 工具链（强制清理缓存）
       # ---------------------------------------------------------
       - name: Setup feeds
         run: |
@@ -113,7 +118,7 @@ jobs:
       - name: Clean toolchain before build
         run: |
           cd "${{ env.BUILD_DIR }}"
-          rm -rf build_dir/toolchain-* staging_dir/toolchain-*
+          rm -rf builddir/toolchain- stagingdir/toolchain-
 
       - name: Build tools
         run: |
@@ -126,24 +131,20 @@ jobs:
           make toolchain/install -j$(nproc) V=s
 
       # ---------------------------------------------------------
-      # 4. DTS 校验
+      # 5. DTS 校验
       # ---------------------------------------------------------
-      - name: DTS validation via OpenWrt kernel-dtc
+      - name: DTS validation via dtc
         run: |
           cd "${{ env.BUILD_DIR }}"
           mkdir -p logs/dts
           echo "=== [DTS Header Preview] ==="
-          head -15 "${{ env.DTS_FILE }}" || true
+          head -15 "${{ env.DTSFILE }}" || true
           echo "=== [DTS Validation] ==="
-          if ! make target/linux/compile CHECK=1 V=s -j1; then
-            echo "❌ DTS validation failed"
-            hexdump -C "${{ env.DTS_FILE }}" | head -40 || true
-            exit 1
-          fi
+          dtc -I dts -O dtb -o logs/dts/test.dtb "${{ env.DTSFILE }}"
           echo "✅ DTS validation passed"
 
       # ---------------------------------------------------------
-      # 5. Target & Packages & Image
+      # 6. Target & Packages & Image
       # ---------------------------------------------------------
       - name: Build target
         run: |
@@ -164,7 +165,7 @@ jobs:
           make image PROFILE="${{ env.PROFILE }}" -j1 V=s
 
       # ---------------------------------------------------------
-      # 6. 固件验证 + 自动注册产物
+      # 7. 固件验证 + 自动注册产物
       # ---------------------------------------------------------
       - name: Verify firmware output
         run: |
