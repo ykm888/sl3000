@@ -1,4 +1,4 @@
-name: ImmortalWrt SL3000 Build
+name: ImmortalWrt SL3000 Build (24.10)
 
 on:
   workflow_dispatch:
