@@ -12,6 +12,7 @@ jobs:
       PROFILE: sl3000-emmc
       TARGET_DIR: /mnt/openwrt/bin/targets/mediatek/filogic
       PATCH_DIR: /mnt/openwrt/target/linux/mediatek/patches-6.6
+      CONFIG_SHELL: /bin/bash   # ✅ 强制 autotools 使用 /bin/bash
 
     steps:
       - name: Prepare /mnt
@@ -78,13 +79,6 @@ jobs:
           cd "${BUILD_DIR}"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: Patch libtool to use /bin/bash (彻底解决错误)
-        run: |
-          cd "${BUILD_DIR}/tools/libtool"
-          sed -i 's|/usr/bin/env bash|/bin/bash|g' configure
-          sed -i 's|/usr/bin/env bash|/bin/bash|g' Makefile
-          echo "✅ 已替换 libtool 脚本中的 /usr/bin/env bash 为 /bin/bash"
 
       - name: Patch ninja Makefile
         run: |
