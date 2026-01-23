@@ -79,14 +79,12 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Fix bash path (复制版，彻底解决 libtool 错误)
+      - name: Patch libtool to use /bin/bash (彻底解决错误)
         run: |
-          sudo mkdir -p /usr/bin
-          sudo cp /bin/bash /usr/bin/bash
-          echo "检查 /usr/bin/bash 是否存在:"
-          ls -l /usr/bin/bash
-          echo "检查 /usr/bin/env bash 是否能执行:"
-          /usr/bin/env bash -c 'echo OK'
+          cd "${BUILD_DIR}/tools/libtool"
+          sed -i 's|/usr/bin/env bash|/bin/bash|g' configure
+          sed -i 's|/usr/bin/env bash|/bin/bash|g' Makefile
+          echo "✅ 已替换 libtool 脚本中的 /usr/bin/env bash 为 /bin/bash"
 
       - name: Patch ninja Makefile
         run: |
