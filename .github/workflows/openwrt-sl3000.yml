@@ -1,128 +1,199 @@
-name: ImmortalWrt SL3000 Build (24.10)
+name: build-sl3000-openwrt-2410
 
 on:
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
+permissions:
+  contents: write
+  packages: write
 
-    env:
-      BUILD_DIR: /mnt/openwrt
-      PROFILE: sl3000-emmc
-      TARGET_DIR: /mnt/openwrt/bin/targets/mediatek/filogic
-      PATCH_DIR: /mnt/openwrt/target/linux/mediatek/patches-6.6
-      CONFIG_SHELL: /bin/bash   # ✅ 强制 autotools 使用 /bin/bash
+jobs:
+  build-sl3000-2410:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     steps:
-      - name: Prepare /mnt
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Prepare /mnt/openwrt
         run: |
           sudo mkdir -p /mnt/openwrt
-          sudo chown $USER:$USER /mnt/openwrt
+          sudo chown -R $USER:$USER /mnt
 
-      - name: Checkout source
+      - name: Ensure /usr/bin/env exists (critical fix)
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt.git $BUILD_DIR
-          cd $BUILD_DIR
-          git checkout openwrt-24.10
+          echo "Checking /usr/bin/env..."
+          if [ ! -x /usr/bin/env ]; then
+            echo "⚠️ /usr/bin/env missing, repairing..."
+            if command -v env >/dev/null 2>&1; then
+              sudo ln -sf "$(command -v env)" /usr/bin/env
+            else
+              sudo apt-get update
+              sudo apt-get install -y coreutils
+            fi
+          fi
+          ls -l /usr/bin/env
 
-      - name: Optimize disk space
+      - name: Clone ImmortalWrt 24.10
+        run: git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git /mnt/openwrt
+
+      - name: Install build dependencies + ccache
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          df -h
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            python3 python3-pip python3-setuptools python3-wheel python3-dev python3-venv \
+            libffi-dev libssl-dev ccache
+          echo "export CCACHE_DIR=/mnt/openwrt/.ccache" >> $GITHUB_ENV
+          echo "export CCACHE_COMPRESS=1" >> $GITHUB_ENV
+          echo "export CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
 
-      - name: Cache downloads and build_dir
+      - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: |
-            /mnt/openwrt/dl
-            /mnt/openwrt/build_dir
-          key: ${{ runner.os }}-immortalwrt-${{ github.run_id }}
+          path: /mnt/openwrt/.ccache
+          key: ${{ runner.os }}-openwrt-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-ccache-
 
-      - name: Filter router-related patches
+      - name: Clean feeds config
+        working-directory: /mnt/openwrt
         run: |
-          cd $PATCH_DIR
-          for p in *.patch; do
-            target_file=$(grep -m1 '^--- a/' "$p" | sed 's/^--- a\///')
-            if [[ "$p" == *mt7981* || "$p" == *sl3000* ]]; then
-              if [ -n "$target_file" ] && [ -f "$BUILD_DIR/linux-6.6/$target_file" ]; then
-                echo "保留补丁: $p"
-              else
-                echo "删除无效补丁: $p (目标文件不存在)"
-                rm -f "$p"
-              fi
-            else
-              rm -f "$p"
-            fi
-          done
-          echo "最终保留的补丁清单："
-          ls -lh
+          echo 'src-git packages https://github.com/openwrt/packages.git' > feeds.conf.default
+          echo 'src-git luci https://github.com/openwrt/luci.git' >> feeds.conf.default
+          echo 'src-git helloworld https://github.com/fw876/helloworld.git' >> feeds.conf.default
+          echo 'src-git small https://github.com/kenzok8/small.git' >> feeds.conf.default
 
-      - name: Auto-fix three-piece files
+      - name: Update feeds
+        working-directory: /mnt/openwrt
         run: |
-          cd "${BUILD_DIR}"
-          [ -f .config ] || touch .config
-          [ -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts ] || echo "/dts-v1/;" > target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts
-          [ -f target/linux/mediatek/image/filogic.mk ] || echo "# filogic mk" > target/linux/mediatek/image/filogic.mk
-
-      - name: Clean hidden characters in three-piece files
-        run: |
-          cd "${BUILD_DIR}"
-          for f in .config target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/image/filogic.mk; do
-            sed -i '1s/^\xEF\xBB\xBF//' "$f"
-            sed -i 's/\t/ /g' "$f"
-            tr -d '\r\000' < "$f" > "$f.clean" && mv "$f.clean" "$f"
-          done
-
-      - name: Setup feeds
-        run: |
-          cd "${BUILD_DIR}"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Patch ninja Makefile
+      - name: Run clean-feeds.sh (white list)
+        working-directory: /mnt/openwrt
         run: |
-          cd "${BUILD_DIR}/tools/ninja"
-          sed -i 's/--no-rebuild//g' Makefile
+          chmod +x $GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh
+          bash $GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh
+          make defconfig
 
-      - name: Build tools
+      - name: Disable menuconfig globally
         run: |
-          cd "${BUILD_DIR}"
-          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
+          echo "KCONFIG_NONINTERACTIVE=1" >> $GITHUB_ENV
+          echo "TERM=dumb" >> $GITHUB_ENV
+          echo "LC_ALL=C" >> $GITHUB_ENV
+          echo "FORCE_UNSAFE_CONFIGURE=1" >> $GITHUB_ENV
+          echo "MAKEFLAGS=--no-builtin-rules" >> $GITHUB_ENV
 
-      - name: Build toolchain
+      - name: Download sources (self-heal)
+        working-directory: /mnt/openwrt
         run: |
-          cd "${BUILD_DIR}"
-          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+          make download -j$(nproc) || \
+          (rm -rf dl/* && make download -j$(nproc))
 
-      - name: Build target
+      - name: Build host tools (self-heal)
+        working-directory: /mnt/openwrt
         run: |
-          cd "${BUILD_DIR}"
-          make target/compile -j$(nproc) V=s || make target/compile -j1 V=s
+          make tools/install -j$(nproc) V=s || \
+          (make tools/clean && make tools/install -j$(nproc) V=s)
 
-      - name: Build packages
+      - name: Build toolchain (self-heal)
+        working-directory: /mnt/openwrt
         run: |
-          cd "${BUILD_DIR}"
-          make package/compile -j$(nproc) V=s || make package/compile -j1 V=s
-          make package/install -j$(nproc) V=s || make package/install -j1 V=s
-          make package/index
+          make toolchain/install -j$(nproc) V=s || \
+          (make toolchain/clean && make toolchain/install -j$(nproc) V=s)
 
-      - name: Build firmware image
+      # 三件套检测
+      - name: Detect three-piece consistency
         run: |
-          cd "${BUILD_DIR}"
-          make image PROFILE="${PROFILE}" -j$(nproc) V=s || make image PROFILE="${PROFILE}" -j1 V=s
+          echo "🔍 Checking DTS/MK/CONFIG consistency..."
+          test -f repo/sl3000/dts/mt7981b-sl-3000-emmc.dts || (echo "❌ DTS missing" && exit 1)
+          test -f repo/sl3000/mk/filogic-sl3000.mk || (echo "❌ MK missing" && exit 1)
+          test -f repo/sl3000/config/sl3000.config || (echo "❌ CONFIG missing" && exit 1)
 
-      - name: Verify firmware output
+          grep -q "mediatek,mt7981" repo/sl3000/dts/mt7981b-sl-3000-emmc.dts || (echo "❌ SoC mismatch" && exit 1)
+          grep -q "sl3000-emmc" repo/sl3000/mk/filogic-sl3000.mk || (echo "❌ MK device name mismatch" && exit 1)
+          grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" repo/sl3000/config/sl3000.config || (echo "❌ CONFIG device missing" && exit 1)
+
+      # 三件套自动修复（自动对应官方设备名）
+      - name: Auto fix three-piece naming
         run: |
-          cd "${BUILD_DIR}"
-          ls -lh "${TARGET_DIR}" || { echo "❌ No firmware found"; exit 1; }
-          md5sum "${TARGET_DIR}"/* || true
-          sha256sum "${TARGET_DIR}"/* || true
-          for bin in "${TARGET_DIR}"/*; do file "$bin"; done
+          echo "🛠 Auto fixing naming issues..."
+          DTS_FILE="repo/sl3000/dts/mt7981b-sl-3000-emmc.dts"
+          DEVICE_NAME=$(basename "$DTS_FILE" .dts | sed 's/^mt7981b-//' | sed 's/-//')
+          echo "📌 Official device name: $DEVICE_NAME"
 
-      - name: Upload artifacts
+          sed -i "s/sl_3000-emmc/$DEVICE_NAME/g" repo/sl3000/mk/filogic-sl3000.mk || true
+          sed -i "s/sl3000-emmc/$DEVICE_NAME/g" repo/sl3000/mk/filogic-sl3000.mk || true
+
+          sed -i "s/DEVICE_sl_3000-emmc/DEVICE_${DEVICE_NAME}/g" repo/sl3000/config/sl3000.config || true
+          sed -i "s/DEVICE_sl3000-emmc/DEVICE_${DEVICE_NAME}/g" repo/sl3000/config/sl3000.config || true
+
+      # 三件套自动注册
+      - name: Apply DTS
+        run: |
+          mkdir -p /mnt/openwrt/target/linux/mediatek/dts
+          cp repo/sl3000/dts/mt7981b-sl-3000-emmc.dts /mnt/openwrt/target/linux/mediatek/dts/
+
+      - name: Apply MK
+        run: |
+          MK=/mnt/openwrt/target/linux/mediatek/image/filogic.mk
+          sed -i '/Device\/sl3000-emmc/,/endef/d' "$MK"
+          sed -i '/TARGET_DEVICES += sl3000-emmc/d' "$MK"
+          cat repo/sl3000/mk/filogic-sl3000.mk >> "$MK"
+
+      - name: Build kernel (self-heal)
+        working-directory: /mnt/openwrt
+        run: |
+          make target/linux/compile -j$(nproc) V=s || \
+          (make target/linux/clean && make target/linux/compile -j$(nproc) V=s)
+
+      - name: Build packages (self-heal)
+        working-directory: /mnt/openwrt
+        run: |
+          make package/compile -j$(nproc) V=s || \
+          (make package/clean && make package/compile -j$(nproc) V=s)
+
+      - name: Build image (self-heal)
+        working-directory: /mnt/openwrt
+        run: |
+          make target/image/compile -j$(nproc) V=s || \
+          (make target/image/clean && make target/image/compile -j$(nproc) V=s)
+
+      - name: Validate firmware output
+        working-directory: /mnt/openwrt
+        run: ls -lh bin/targets/mediatek/filogic/*sl3000-emmc*sysupgrade.bin
+
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-${{ env.PROFILE }}-${{ github.run_number }}
-          path: |
-            ${{ env.TARGET_DIR }}
+          name: sl3000-2410-firmware
+          path: /mnt/openwrt/bin/targets/mediatek/filogic/*
+
+      # 自动发布固件（不用 EOF）
+      - name: Auto Release firmware
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tag_name: sl3000-openwrt-2410-${{ github.run_number }}
+          name: SL3000 OpenWrt 24.10 Build #${{ github.run_number }}
+          body: |
+            OpenWrt 24.10 / kernel 6.6  
+            Target: SL3000 (MT7981B eMMC)  
+            Auto three-piece (DTS/MK/CONFIG)  
+            Build: ${{ github.run_number }}  
+            Commit: ${{ github.sha }}
+          files: /mnt/openwrt/bin/targets/mediatek/filogic/*
+          prerelease: true
+
+      - name: Optimize disk space
+        working-directory: /mnt/openwrt
+        run: |
+          echo "Cleaning build_dir, staging_dir, tmp to free disk space..."
+          find dl -type f -size +100M -delete || true
+          rm -rf build_dir/* staging_dir/* tmp/*
+          echo "Remaining firmware size:"
+          du -sh bin/targets
